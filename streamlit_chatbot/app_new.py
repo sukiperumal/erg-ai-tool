@@ -1,6 +1,6 @@
 """
 AI Learning Assistant
-A clean, minimal chatbot for course-based learning with multiple cohort types.
+A clean, minimal chatbot with Bloom's taxonomy levels for structured learning.
 """
 
 import json
@@ -36,26 +36,21 @@ st.markdown("""
         --background-color: #ffffff;
         --secondary-background-color: #f8f9fa;
         --text-color: #1a1a1a;
-        --font: "Source Sans Pro", sans-serif;
     }
     
-    /* Main app background */
     .stApp, .main, [data-testid="stAppViewContainer"] {
         background-color: #ffffff !important;
         color: #1a1a1a !important;
     }
     
-    /* All text elements */
     .stApp p, .stApp span, .stApp div, .stApp label, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
         color: #1a1a1a !important;
     }
     
-    /* Markdown text */
     .stMarkdown, .stMarkdown p, .stMarkdown span {
         color: #1a1a1a !important;
     }
     
-    /* Clean header styling */
     .main-header {
         font-size: 1.8rem;
         font-weight: 600;
@@ -71,7 +66,6 @@ st.markdown("""
         margin-bottom: 1.5rem;
     }
     
-    /* Course card styling */
     .course-card {
         background-color: #ffffff !important;
         border: 1px solid #e0e0e0;
@@ -103,7 +97,26 @@ st.markdown("""
         color: #555555 !important;
     }
     
-    /* Cohort badge styling */
+    .level-card {
+        background-color: #f8f9fa !important;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .level-card:hover {
+        border-color: #007bff;
+        background-color: #ffffff !important;
+    }
+    
+    .level-card.selected {
+        border-color: #007bff;
+        background-color: #e3f2fd !important;
+    }
+    
     .cohort-badge {
         display: inline-block;
         padding: 0.25rem 0.75rem;
@@ -111,7 +124,6 @@ st.markdown("""
         font-size: 0.8rem;
         font-weight: 500;
         margin-right: 0.5rem;
-        margin-bottom: 0.5rem;
     }
     
     .badge-teacher {
@@ -129,7 +141,22 @@ st.markdown("""
         color: #2e7d32 !important;
     }
     
-    /* Sidebar styling */
+    .blooms-badge {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 15px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
+    
+    .blooms-1 { background-color: #ffebee !important; color: #c62828 !important; }
+    .blooms-2 { background-color: #fff3e0 !important; color: #ef6c00 !important; }
+    .blooms-3 { background-color: #fffde7 !important; color: #f9a825 !important; }
+    .blooms-4 { background-color: #e8f5e9 !important; color: #2e7d32 !important; }
+    .blooms-5 { background-color: #e3f2fd !important; color: #1565c0 !important; }
+    .blooms-6 { background-color: #f3e5f5 !important; color: #7b1fa2 !important; }
+    
     section[data-testid="stSidebar"], [data-testid="stSidebar"] > div {
         background-color: #f5f5f5 !important;
         border-right: 1px solid #e0e0e0;
@@ -138,14 +165,10 @@ st.markdown("""
     section[data-testid="stSidebar"] p, 
     section[data-testid="stSidebar"] span,
     section[data-testid="stSidebar"] div,
-    section[data-testid="stSidebar"] label,
-    section[data-testid="stSidebar"] h1,
-    section[data-testid="stSidebar"] h2,
-    section[data-testid="stSidebar"] h3 {
+    section[data-testid="stSidebar"] label {
         color: #1a1a1a !important;
     }
     
-    /* Chat message styling */
     [data-testid="stChatMessage"] {
         background-color: #f8f9fa !important;
         border-radius: 12px;
@@ -158,81 +181,34 @@ st.markdown("""
         color: #1a1a1a !important;
     }
     
-    /* Chat input styling */
     [data-testid="stChatInput"] textarea {
         background-color: #ffffff !important;
         color: #1a1a1a !important;
         border: 1px solid #e0e0e0 !important;
     }
     
-    [data-testid="stChatInput"] textarea::placeholder {
-        color: #888888 !important;
-    }
-    
-    /* Button styling */
     .stButton > button {
-        background-color: #5a9bd5 !important;
-        color: #ffffff !important;
+        background-color: #cbd5e0 !important;
+        color: #2d3748 !important;
         border: none !important;
         border-radius: 8px;
         font-weight: 500;
-        transition: all 0.2s ease;
     }
     
     .stButton > button:hover {
-        background-color: #4a8bc5 !important;
-        transform: translateY(-1px);
+        background-color: #a0aec0 !important;
     }
     
-    /* Secondary buttons */
-    .stButton > button[kind="secondary"] {
-        background-color: #f8f9fa !important;
-        color: #1a1a1a !important;
-        border: 1px solid #e0e0e0 !important;
-    }
-    
-    /* Info/warning/success/error boxes */
-    [data-testid="stAlert"] {
-        background-color: #f8f9fa !important;
-        color: #1a1a1a !important;
-    }
-    
-    .stAlert p, .stAlert span {
-        color: #1a1a1a !important;
-    }
-    
-    /* Selectbox styling */
-    [data-testid="stSelectbox"] label {
-        color: #1a1a1a !important;
-    }
-    
-    [data-testid="stSelectbox"] > div > div {
-        background-color: #ffffff !important;
-        color: #1a1a1a !important;
-    }
-    
-    /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header[data-testid="stHeader"] {
         background-color: #ffffff !important;
     }
     
-    /* Divider styling */
     hr {
         border: none;
         border-top: 1px solid #e0e0e0;
         margin: 1.5rem 0;
-    }
-    
-    /* Spinner text */
-    .stSpinner > div {
-        color: #1a1a1a !important;
-    }
-    
-    /* Column containers */
-    [data-testid="column"] {
-        background-color: transparent !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -243,16 +219,16 @@ st.markdown("""
 
 def load_config() -> dict:
     """Load course and cohort configuration from JSON file."""
-    config_path = os.path.join(os.path.dirname(__file__), "prompts.json")
+    config_path = os.path.join(os.path.dirname(__file__), "prompts_new.json")
     try:
         with open(config_path, "r") as f:
             return json.load(f)
     except FileNotFoundError:
-        st.error("Configuration file not found. Please create prompts.json.")
-        return {"courses": []}
+        st.error("Configuration file not found. Please create prompts_new.json.")
+        return {"courses": [], "blooms_levels": []}
     except json.JSONDecodeError:
         st.error("Invalid JSON in configuration file.")
-        return {"courses": []}
+        return {"courses": [], "blooms_levels": []}
 
 
 def init_gemini() -> bool:
@@ -282,7 +258,7 @@ def get_mongo_client():
         return None
 
 
-def log_conversation(mongo_client, course: str, cohort: str, user_query: str, ai_response: str, session_id: str):
+def log_conversation(mongo_client, course: str, cohort: str, level: int, user_query: str, ai_response: str, session_id: str):
     """Log conversation to MongoDB."""
     if mongo_client is None:
         return
@@ -295,6 +271,7 @@ def log_conversation(mongo_client, course: str, cohort: str, user_query: str, ai
             "timestamp": datetime.utcnow(),
             "course": course,
             "cohort": cohort,
+            "blooms_level": level,
             "user_query": user_query,
             "ai_response": ai_response,
             "session_id": session_id
@@ -345,14 +322,17 @@ def init_session_state(config: dict):
     if "selected_cohort" not in st.session_state:
         st.session_state.selected_cohort = None
     
+    if "selected_level" not in st.session_state:
+        st.session_state.selected_level = None
+    
     if "chat_histories" not in st.session_state:
         st.session_state.chat_histories = {}
 
 
 def get_chat_key() -> str:
-    """Get unique key for current course/cohort chat history."""
-    if st.session_state.selected_course and st.session_state.selected_cohort:
-        return f"{st.session_state.selected_course['id']}_{st.session_state.selected_cohort['id']}"
+    """Get unique key for current course/cohort/level chat history."""
+    if st.session_state.selected_course and st.session_state.selected_cohort and st.session_state.selected_level:
+        return f"{st.session_state.selected_course['id']}_{st.session_state.selected_cohort['id']}_{st.session_state.selected_level}"
     return None
 
 
@@ -366,20 +346,18 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
         st.markdown("### 📚 AI Learning Assistant")
         st.markdown("---")
         
-        # Navigation
         if st.session_state.current_view == "chat":
-            if st.button("← Back to Courses", use_container_width=True):
-                st.session_state.current_view = "course_selection"
+            if st.button("← Back", use_container_width=True):
+                st.session_state.current_view = "level_selection"
                 st.rerun()
             
             st.markdown("---")
             
-            # Current selection info
-            if st.session_state.selected_course and st.session_state.selected_cohort:
-                st.markdown("**Current Course**")
+            if st.session_state.selected_course and st.session_state.selected_cohort and st.session_state.selected_level:
+                st.markdown("**Course**")
                 st.info(f"{st.session_state.selected_course['icon']} {st.session_state.selected_course['name']}")
                 
-                st.markdown("**Cohort Type**")
+                st.markdown("**Cohort**")
                 cohort_type = st.session_state.selected_cohort['type']
                 if cohort_type == "teacher":
                     st.markdown('<span class="cohort-badge badge-teacher">👩‍🏫 Teacher Led</span>', unsafe_allow_html=True)
@@ -388,16 +366,32 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
                 else:
                     st.markdown('<span class="cohort-badge badge-ai">🤖 AI Led</span>', unsafe_allow_html=True)
                 
+                st.markdown("**Bloom's Level**")
+                level = st.session_state.selected_level
+                level_info = st.session_state.selected_cohort['levels'].get(str(level), {})
+                level_name = level_info.get('name', f'Level {level}')
+                blooms_levels = config.get('blooms_levels', [])
+                level_data = next((l for l in blooms_levels if l['id'] == level), None)
+                if level_data:
+                    st.markdown(f"<span class='blooms-badge blooms-{level}'>{level_data['icon']} {level_name}</span>", unsafe_allow_html=True)
+                
                 st.markdown("---")
                 
-                # Clear chat button
                 if st.button("🗑️ Clear Chat", use_container_width=True):
                     chat_key = get_chat_key()
                     if chat_key:
                         st.session_state.chat_histories[chat_key] = []
                     st.rerun()
         
-        # Status indicators
+        elif st.session_state.current_view in ["cohort_selection", "level_selection"]:
+            if st.button("← Back", use_container_width=True):
+                if st.session_state.current_view == "level_selection":
+                    st.session_state.current_view = "cohort_selection"
+                else:
+                    st.session_state.current_view = "course_selection"
+                    st.session_state.selected_course = None
+                st.rerun()
+        
         st.markdown("---")
         st.markdown("**Status**")
         
@@ -438,7 +432,7 @@ def render_course_selection(config: dict):
             </div>
             """, unsafe_allow_html=True)
             
-            if st.button(f"Select {course['name']}", key=f"course_{course['id']}", use_container_width=True):
+            if st.button(f"Select", key=f"course_{course['id']}", use_container_width=True):
                 st.session_state.selected_course = course
                 st.session_state.current_view = "cohort_selection"
                 st.rerun()
@@ -452,12 +446,6 @@ def render_cohort_selection():
         st.session_state.current_view = "course_selection"
         st.rerun()
         return
-    
-    # Back button
-    if st.button("← Back to Courses"):
-        st.session_state.current_view = "course_selection"
-        st.session_state.selected_course = None
-        st.rerun()
     
     st.markdown(f'<p class="main-header">{course["icon"]} {course["name"]}</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Choose your learning cohort type</p>', unsafe_allow_html=True)
@@ -498,14 +486,14 @@ def render_cohort_selection():
             </div>
             """, unsafe_allow_html=True)
             
-            if st.button(f"Start {info['title']}", key=f"cohort_{cohort['id']}", use_container_width=True):
+            if st.button(f"Select", key=f"cohort_{cohort['id']}", use_container_width=True):
                 st.session_state.selected_cohort = cohort
-                st.session_state.current_view = "chat"
+                st.session_state.current_view = "level_selection"
                 st.rerun()
 
 
-def render_chat_interface(mongo_client, gemini_ready: bool):
-    """Render the chat interface."""
+def render_level_selection(config: dict):
+    """Render Bloom's taxonomy level selection view."""
     course = st.session_state.selected_course
     cohort = st.session_state.selected_cohort
     
@@ -514,11 +502,82 @@ def render_chat_interface(mongo_client, gemini_ready: bool):
         st.rerun()
         return
     
-    # Header
     cohort_icons = {"teacher": "👩‍🏫", "hybrid": "🤝", "ai": "🤖"}
     icon = cohort_icons.get(cohort["type"], "🤖")
     
     st.markdown(f'<p class="main-header">{course["icon"]} {course["name"]} — {icon} {cohort["name"]}</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Select your Bloom\'s Taxonomy level</p>', unsafe_allow_html=True)
+    
+    blooms_levels = config.get("blooms_levels", [])
+    
+    # Create 2 rows of 3 levels each
+    for row in range(2):
+        cols = st.columns(3)
+        for col_idx in range(3):
+            level_idx = row * 3 + col_idx
+            if level_idx < len(blooms_levels):
+                level = blooms_levels[level_idx]
+                level_id = level['id']
+                
+                with cols[col_idx]:
+                    # Check if this level exists in the cohort
+                    level_data = cohort.get('levels', {}).get(str(level_id))
+                    
+                    if level_data:
+                        st.markdown(f"""
+                        <div class="level-card">
+                            <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">{level['icon']}</div>
+                            <div style="font-weight: 600; color: #1a1a1a;">Level {level_id}: {level['name']}</div>
+                            <div style="font-size: 0.8rem; color: #666;">{level['description']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button(f"Start Level {level_id}", key=f"level_{level_id}", use_container_width=True):
+                            st.session_state.selected_level = level_id
+                            st.session_state.current_view = "chat"
+                            st.rerun()
+                    else:
+                        st.markdown(f"""
+                        <div class="level-card" style="opacity: 0.5;">
+                            <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">{level['icon']}</div>
+                            <div style="font-weight: 600; color: #999;">Level {level_id}: {level['name']}</div>
+                            <div style="font-size: 0.8rem; color: #999;">Not available</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+
+def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
+    """Render the chat interface."""
+    course = st.session_state.selected_course
+    cohort = st.session_state.selected_cohort
+    level = st.session_state.selected_level
+    
+    if not course or not cohort or not level:
+        st.session_state.current_view = "course_selection"
+        st.rerun()
+        return
+    
+    # Get level data
+    level_data = cohort.get('levels', {}).get(str(level), {})
+    level_name = level_data.get('name', f'Level {level}')
+    system_prompt = level_data.get('system_prompt', '')
+    
+    # Header
+    cohort_icons = {"teacher": "👩‍🏫", "hybrid": "🤝", "ai": "🤖"}
+    cohort_icon = cohort_icons.get(cohort["type"], "🤖")
+    
+    blooms_levels = config.get('blooms_levels', [])
+    blooms_data = next((l for l in blooms_levels if l['id'] == level), None)
+    level_icon = blooms_data['icon'] if blooms_data else "📝"
+    
+    st.markdown(f'<p class="main-header">{course["icon"]} {course["name"]} — {cohort_icon} {cohort["name"]} — {level_icon} {level_name}</p>', unsafe_allow_html=True)
+    
+    # Show resources if available
+    resources = level_data.get('resources', [])
+    if resources:
+        with st.expander("📚 Learning Resources", expanded=False):
+            for resource in resources:
+                st.markdown(f"• {resource}")
     
     # Get or initialize chat history
     chat_key = get_chat_key()
@@ -530,9 +589,9 @@ def render_chat_interface(mongo_client, gemini_ready: bool):
     # Display welcome message if no history
     if not chat_history:
         welcome_messages = {
-            "teacher": f"Welcome to {course['name']}! I'm here to support your teacher-led learning. Feel free to ask me any questions about the course material.",
-            "hybrid": f"Welcome to {course['name']}! I'm your AI teaching assistant, working alongside your teacher to help you learn. Ask me anything!",
-            "ai": f"Welcome to {course['name']}! I'll be your primary instructor. Let's begin your learning journey. What would you like to explore first?"
+            "teacher": f"Welcome to {course['name']} - {level_name}! I'm here to support your teacher-led learning at this level. Ask me any questions about the material.",
+            "hybrid": f"Welcome to {course['name']} - {level_name}! I'm your AI teaching assistant. Let's work through this level together!",
+            "ai": f"Welcome to {course['name']} - {level_name}! I'll be your primary instructor for this level. Let's begin!"
         }
         
         with st.chat_message("assistant"):
@@ -549,31 +608,28 @@ def render_chat_interface(mongo_client, gemini_ready: bool):
         return
     
     if prompt := st.chat_input("Type your message..."):
-        # Add user message
         chat_history.append({"role": "user", "content": prompt})
         
         with st.chat_message("user"):
             st.markdown(prompt)
         
-        # Get AI response
         with st.chat_message("assistant"):
             with st.spinner(""):
                 response = get_gemini_response(
-                    system_prompt=cohort["system_prompt"],
+                    system_prompt=system_prompt,
                     chat_history=chat_history[:-1],
                     user_message=prompt
                 )
                 st.markdown(response)
         
-        # Add response to history
         chat_history.append({"role": "assistant", "content": response})
         st.session_state.chat_histories[chat_key] = chat_history
         
-        # Log to MongoDB
         log_conversation(
             mongo_client=mongo_client,
             course=course["name"],
             cohort=cohort["name"],
+            level=level,
             user_query=prompt,
             ai_response=response,
             session_id=st.session_state.session_id
@@ -586,30 +642,29 @@ def render_chat_interface(mongo_client, gemini_ready: bool):
 
 def main():
     """Main application entry point."""
-    # Load configuration
     config = load_config()
     
     if not config.get("courses"):
-        st.error("No courses configured. Please check prompts.json.")
+        st.error("No courses configured. Please check prompts_new.json.")
         st.stop()
     
-    # Initialize
     init_session_state(config)
     gemini_ready = init_gemini()
     mongo_client = get_mongo_client()
     
-    # Render sidebar
     render_sidebar(config, gemini_ready, mongo_client is not None)
     
-    # Render main content based on current view
     if st.session_state.current_view == "course_selection":
         render_course_selection(config)
     
     elif st.session_state.current_view == "cohort_selection":
         render_cohort_selection()
     
+    elif st.session_state.current_view == "level_selection":
+        render_level_selection(config)
+    
     elif st.session_state.current_view == "chat":
-        render_chat_interface(mongo_client, gemini_ready)
+        render_chat_interface(config, mongo_client, gemini_ready)
 
 
 if __name__ == "__main__":
