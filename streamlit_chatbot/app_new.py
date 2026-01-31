@@ -6,6 +6,7 @@ A clean, minimal chatbot with Bloom's taxonomy levels for structured learning.
 import json
 import os
 import uuid
+import hashlib
 from datetime import datetime
 
 import streamlit as st
@@ -188,15 +189,30 @@ st.markdown("""
     }
     
     .stButton > button {
-        background-color: #cbd5e0 !important;
+        background-color: #b8d4e8 !important;
         color: #2d3748 !important;
         border: none !important;
         border-radius: 8px;
         font-weight: 500;
+        transition: all 0.2s ease;
+        position: relative;
     }
     
     .stButton > button:hover {
-        background-color: #a0aec0 !important;
+        background-color: #a3c7de !important;
+        transform: translateY(-1px);
+        padding-right: 35px !important;
+    }
+    
+    .stButton > button:hover::after {
+        content: '→';
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 1.1rem;
+        opacity: 1;
+        transition: all 0.2s ease;
     }
     
     #MainMenu {visibility: hidden;}
@@ -258,7 +274,7 @@ def get_mongo_client():
         return None
 
 
-def log_conversation(mongo_client, course: str, cohort: str, level: int, user_query: str, ai_response: str, session_id: str):
+def log_conversation(mongo_client, course: str, cohort: str, level: int, user_query: str, ai_response: str, session_id: str, user_id: str = None):
     """Log conversation to MongoDB."""
     if mongo_client is None:
         return
@@ -274,12 +290,139 @@ def log_conversation(mongo_client, course: str, cohort: str, level: int, user_qu
             "blooms_level": level,
             "user_query": user_query,
             "ai_response": ai_response,
-            "session_id": session_id
+            "session_id": session_id,
+            "user_id": user_id
         }
         
         collection.insert_one(document)
     except Exception:
         pass
+
+
+def create_or_update_user_session(mongo_client, user_id: str, user_name: str, course_id: str, 
+                                   course_name: str, cohort_id: str, cohort_name: str, 
+                                   bloom_level: int, session_id: str, chat_entry: dict = None,
+                                   tokens_used: int = 0, is_end: bool = False):
+    """Create or update user session in MongoDB user_sessions collection."""
+    if mongo_client is None:
+        return
+    
+    try:
+        db = mongo_client["chatbot_logs"]
+        collection = db["user_sessions"]
+        
+        # Check if session exists
+        existing_session = collection.find_one({"session_id": session_id, "user_id": user_id})
+        
+        if existing_session:
+            # Update existing session
+            update_data = {
+                "chat_end_time": datetime.utcnow() if is_end else existing_session.get("chat_end_time")
+            }
+            
+            if chat_entry:
+                collection.update_one(
+                    {"session_id": session_id, "user_id": user_id},
+                    {
+                        "$push": {"chat_history": chat_entry},
+                        "$inc": {"usage_tokens": tokens_used},
+                        "$set": update_data
+                    }
+                )
+            else:
+                collection.update_one(
+                    {"session_id": session_id, "user_id": user_id},
+                    {"$set": update_data, "$inc": {"usage_tokens": tokens_used}}
+                )
+        else:
+            # Create new session
+            document = {
+                "session_id": session_id,
+                "user_id": user_id,
+                "user_name": user_name,
+                "course_id": course_id,
+                "course_name": course_name,
+                "cohort_id": cohort_id,
+                "cohort_name": cohort_name,
+                "bloom_level": bloom_level,
+                "chat_start_time": datetime.utcnow(),
+                "chat_end_time": None,
+                "usage_tokens": tokens_used,
+                "chat_history": [chat_entry] if chat_entry else []
+            }
+            
+            collection.insert_one(document)
+    except Exception:
+        pass
+
+
+def hash_password(password: str) -> str:
+    """Hash a password using SHA-256."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def authenticate_user(mongo_client, username: str, password: str) -> dict:
+    """Authenticate user against MongoDB users collection."""
+    if mongo_client is None:
+        # Default user when no MongoDB
+        default_users = {
+            "suki": {"password": hash_password("suki123"), "user_id": "user_001", "name": "Suki"}
+        }
+        
+        if username in default_users and default_users[username]["password"] == hash_password(password):
+            return {
+                "authenticated": True,
+                "user_id": default_users[username]["user_id"],
+                "user_name": default_users[username]["name"],
+                "username": username
+            }
+        return {"authenticated": False}
+    
+    try:
+        db = mongo_client["chatbot_logs"]
+        collection = db["users"]
+        
+        user = collection.find_one({"username": username})
+        
+        if user and user.get("password") == hash_password(password):
+            return {
+                "authenticated": True,
+                "user_id": str(user.get("_id", user.get("user_id", ""))),
+                "user_name": user.get("name", username),
+                "username": username
+            }
+        return {"authenticated": False}
+    except Exception:
+        return {"authenticated": False}
+
+
+def register_user(mongo_client, username: str, password: str, name: str) -> dict:
+    """Register a new user in MongoDB."""
+    if mongo_client is None:
+        return {"success": False, "message": "Database not available"}
+    
+    try:
+        db = mongo_client["chatbot_logs"]
+        collection = db["users"]
+        
+        # Check if user already exists
+        if collection.find_one({"username": username}):
+            return {"success": False, "message": "Username already exists"}
+        
+        # Create new user
+        user_id = str(uuid.uuid4())
+        document = {
+            "user_id": user_id,
+            "username": username,
+            "password": hash_password(password),
+            "name": name,
+            "created_at": datetime.utcnow()
+        }
+        
+        collection.insert_one(document)
+        return {"success": True, "user_id": user_id, "message": "User registered successfully"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
 
 
 def get_gemini_response(system_prompt: str, chat_history: list, user_message: str) -> str:
@@ -314,7 +457,7 @@ def init_session_state(config: dict):
         st.session_state.session_id = str(uuid.uuid4())
     
     if "current_view" not in st.session_state:
-        st.session_state.current_view = "course_selection"
+        st.session_state.current_view = "login"
     
     if "selected_course" not in st.session_state:
         st.session_state.selected_course = None
@@ -327,6 +470,22 @@ def init_session_state(config: dict):
     
     if "chat_histories" not in st.session_state:
         st.session_state.chat_histories = {}
+    
+    # Login-related session state
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+    
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
+    
+    if "user_name" not in st.session_state:
+        st.session_state.user_name = None
+    
+    if "username" not in st.session_state:
+        st.session_state.username = None
+    
+    if "chat_start_time" not in st.session_state:
+        st.session_state.chat_start_time = None
 
 
 def get_chat_key() -> str:
@@ -344,6 +503,16 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
     """Render sidebar with navigation and status."""
     with st.sidebar:
         st.markdown("### 📚 AI Learning Assistant")
+        
+        # Home button - always visible when logged in
+        if st.session_state.logged_in:
+            if st.button("🏠 Home", use_container_width=True, key="home_btn"):
+                st.session_state.current_view = "course_selection"
+                st.session_state.selected_course = None
+                st.session_state.selected_cohort = None
+                st.session_state.selected_level = None
+                st.rerun()
+        
         st.markdown("---")
         
         if st.session_state.current_view == "chat":
@@ -392,21 +561,19 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
                     st.session_state.selected_course = None
                 st.rerun()
         
-        st.markdown("---")
-        st.markdown("**Status**")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if gemini_ready:
-                st.success("AI ✓", icon="🤖")
-            else:
-                st.error("AI ✗", icon="🤖")
-        
-        with col2:
-            if mongo_ready:
-                st.success("DB ✓", icon="💾")
-            else:
-                st.warning("DB ✗", icon="💾")
+        # User info and logout at bottom
+        if st.session_state.logged_in:
+            st.markdown("---")
+            st.markdown(f"**Logged in as:** {st.session_state.user_name}")
+            if st.button("🚪 Logout", use_container_width=True):
+                st.session_state.logged_in = False
+                st.session_state.user_id = None
+                st.session_state.user_name = None
+                st.session_state.username = None
+                st.session_state.current_view = "login"
+                st.session_state.session_id = str(uuid.uuid4())
+                st.session_state.chat_histories = {}
+                st.rerun()
 
 
 def render_course_selection(config: dict):
@@ -572,6 +739,14 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
     
     st.markdown(f'<p class="main-header">{course["icon"]} {course["name"]} — {cohort_icon} {cohort["name"]} — {level_icon} {level_name}</p>', unsafe_allow_html=True)
     
+    # Exit Chat button
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col3:
+        if st.button("🚪 Exit Chat", key="exit_chat_btn", use_container_width=True):
+            st.session_state.current_view = "level_selection"
+            st.session_state.selected_level = None
+            st.rerun()
+    
     # Show resources if available
     resources = level_data.get('resources', [])
     if resources:
@@ -632,8 +807,93 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
             level=level,
             user_query=prompt,
             ai_response=response,
-            session_id=st.session_state.session_id
+            session_id=st.session_state.session_id,
+            user_id=st.session_state.user_id
         )
+        
+        # Update user session in MongoDB
+        chat_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "user_question": prompt,
+            "ai_response": response
+        }
+        
+        create_or_update_user_session(
+            mongo_client=mongo_client,
+            user_id=st.session_state.user_id,
+            user_name=st.session_state.user_name,
+            course_id=course["id"],
+            course_name=course["name"],
+            cohort_id=cohort["id"],
+            cohort_name=cohort["name"],
+            bloom_level=level,
+            session_id=st.session_state.session_id,
+            chat_entry=chat_entry,
+            tokens_used=len(prompt.split()) + len(response.split())
+        )
+
+
+# -----------------------------------------------------------------------------
+# Login Page
+# -----------------------------------------------------------------------------
+
+def render_login_page(mongo_client):
+    """Render the login page."""
+    st.markdown('<p class="main-header">🔐 Login to AI Learning Assistant</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Please enter your credentials to continue</p>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        tab1, tab2 = st.tabs(["Login", "Register"])
+        
+        with tab1:
+            with st.form("login_form"):
+                username = st.text_input("Username", placeholder="Enter your username")
+                password = st.text_input("Password", type="password", placeholder="Enter your password")
+                
+                submit_button = st.form_submit_button("Login", use_container_width=True)
+                
+                if submit_button:
+                    if username and password:
+                        result = authenticate_user(mongo_client, username, password)
+                        if result["authenticated"]:
+                            st.session_state.logged_in = True
+                            st.session_state.user_id = result["user_id"]
+                            st.session_state.user_name = result["user_name"]
+                            st.session_state.username = result["username"]
+                            st.session_state.current_view = "course_selection"
+                            st.session_state.session_id = str(uuid.uuid4())
+                            st.success("Login successful!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid username or password")
+                    else:
+                        st.warning("Please enter both username and password")
+        
+        with tab2:
+            with st.form("register_form"):
+                new_name = st.text_input("Full Name", placeholder="Enter your full name")
+                new_username = st.text_input("Username", placeholder="Choose a username", key="reg_username")
+                new_password = st.text_input("Password", type="password", placeholder="Choose a password", key="reg_password")
+                confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
+                
+                register_button = st.form_submit_button("Register", use_container_width=True)
+                
+                if register_button:
+                    if new_name and new_username and new_password and confirm_password:
+                        if new_password != confirm_password:
+                            st.error("Passwords do not match")
+                        elif len(new_password) < 6:
+                            st.error("Password must be at least 6 characters")
+                        else:
+                            result = register_user(mongo_client, new_username, new_password, new_name)
+                            if result["success"]:
+                                st.success(result["message"] + " Please login.")
+                            else:
+                                st.error(result["message"])
+                    else:
+                        st.warning("Please fill in all fields")
 
 
 # -----------------------------------------------------------------------------
@@ -651,6 +911,11 @@ def main():
     init_session_state(config)
     gemini_ready = init_gemini()
     mongo_client = get_mongo_client()
+    
+    # Check if user is logged in
+    if not st.session_state.logged_in:
+        render_login_page(mongo_client)
+        return
     
     render_sidebar(config, gemini_ready, mongo_client is not None)
     
