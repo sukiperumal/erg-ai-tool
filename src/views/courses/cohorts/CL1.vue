@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
 import { CircleCheckIcon, CircleHelpIcon, CircleIcon } from 'lucide-vue-next'
 import Button from '@/components/ui/button/Button.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,7 +14,6 @@ import {
 // eslint-disable-next-line import/no-named-default
 import { default as ListItem } from '@/components/ui/navigation-menu/NavigationMenuItem.vue'
 import router from '@/router'
-import { B } from 'vue-router/dist/router-CWoNjPRp.mjs'
 
 </script>
 
