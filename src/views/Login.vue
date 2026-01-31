@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
+import router from '@/router'
 
 const email = ref('')
 const password = ref('')
@@ -25,6 +26,7 @@ async function onSubmit() {
     }
 
     console.log('Login attempt:', { email: email.value, password: password.value })
+    router.push({ name: 'home' })
   } catch (error) {
     console.error('Login failed:', error)
     errorMessage.value = 'Something went wrong'
