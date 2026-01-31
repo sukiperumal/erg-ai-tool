@@ -9,8 +9,20 @@ import {
   NavigationMenuTrigger,
   navigationMenuTriggerStyle,
 } from '@/components/ui/navigation-menu'
+
+import {
+  CardContent,
+  CardFooter,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+
 // eslint-disable-next-line import/no-named-default
 import { default as ListItem } from '@/components/ui/navigation-menu/NavigationMenuItem.vue'
+import Card from '@/components/ui/card/Card.vue'
+import Button from '@/components/ui/button/Button.vue'
+import router from '@/router'
 
 const components: { title: string, href: string, description: string }[] = [
   {
@@ -49,11 +61,24 @@ const components: { title: string, href: string, description: string }[] = [
       'A popup that displays information related to an element when the element receives keyboard focus or the mouse hovers over it.',
   },
 ]
+
+function onClick(courseId: number) {
+  if (courseId === 1) {
+    // alert('You have selected the Criminal Law course.')
+    router.push('/courses/1')
+  } else if (courseId === 2) {
+    // alert('You have selected the Stroke Analysis course.')
+    router.push('/courses/2')
+  } else if (courseId === 3) {
+    // alert('You have selected the Environment CBA course.')
+    router.push('/courses/3')
+  }
+}
 </script>
 
 <template>
   <div>
-    <div class="flex justify-center py-4">
+    <div class="flex justify-center py-2">
       <NavigationMenu :viewport="false">
       <NavigationMenuList>
         <NavigationMenuItem>
@@ -187,6 +212,27 @@ const components: { title: string, href: string, description: string }[] = [
         </NavigationMenuItem>
       </NavigationMenuList>
     </NavigationMenu>
+    </div>
+    <div class="flex justify-center px-8 py-16">
+      <Card class="w-full max-w-4xl">
+        <CardHeader class="gap-4">
+          <CardTitle>Welcome to ERG Study - AI</CardTitle>
+          <CardDescription class="mt-4">
+            Please choose your Course from below to get started.
+          </CardDescription>
+        </CardHeader>
+        <div class="flex flex-row gap-8 justify-center py-8">
+          <Button variant="outline" class="w-64 h-24" @click="onClick(1)">
+            Criminal Law
+          </Button>
+          <Button variant="outline" class="w-64 h-24" @click="onClick(2)">
+            Stroke Analysis
+          </Button>
+          <Button variant="outline" class="w-64 h-24" @click="onClick(3)">
+            Environment CBA
+          </Button>
+        </div>
+      </Card>
     </div>
   </div>
 </template>
