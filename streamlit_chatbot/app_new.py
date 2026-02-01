@@ -7,6 +7,7 @@ import json
 import os
 import uuid
 import hashlib
+import ssl
 from datetime import datetime
 
 import streamlit as st
@@ -14,6 +15,7 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
+import certifi
 
 # Load environment variables
 load_dotenv()
@@ -267,36 +269,79 @@ def get_mongo_client():
         return None
     
     try:
-        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        client = MongoClient(
+            mongo_uri, 
+            serverSelectionTimeoutMS=5000,
+            tls=True,
+            tlsAllowInvalidCertificates=True
+        )
         client.admin.command('ping')
         return client
-    except (ConnectionFailure, Exception):
+    except Exception as e:
+        # Silently fail - we'll use local storage as fallback
         return None
 
 
+# --- Local Storage Fallback ---
+LOCAL_USERS_FILE = os.path.join(os.path.dirname(__file__), "local_users.json")
+LOCAL_LOGS_FILE = os.path.join(os.path.dirname(__file__), "local_logs.json")
+
+
+def load_local_users():
+    """Load users from local JSON file."""
+    if os.path.exists(LOCAL_USERS_FILE):
+        with open(LOCAL_USERS_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def save_local_users(users):
+    """Save users to local JSON file."""
+    with open(LOCAL_USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+
+def load_local_logs():
+    """Load conversation logs from local JSON file."""
+    if os.path.exists(LOCAL_LOGS_FILE):
+        with open(LOCAL_LOGS_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+
+def save_local_log(log_entry):
+    """Append a log entry to local JSON file."""
+    logs = load_local_logs()
+    logs.append(log_entry)
+    with open(LOCAL_LOGS_FILE, "w") as f:
+        json.dump(logs, f, indent=2, default=str)
+
+
 def log_conversation(mongo_client, course: str, cohort: str, level: int, user_query: str, ai_response: str, session_id: str, user_id: str = None):
-    """Log conversation to MongoDB."""
-    if mongo_client is None:
-        return
+    """Log conversation to MongoDB or local file."""
+    log_entry = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "course": course,
+        "cohort": cohort,
+        "level": level,
+        "user_query": user_query,
+        "ai_response": ai_response,
+        "session_id": session_id,
+        "user_id": user_id
+    }
     
-    try:
-        db = mongo_client["chatbot_logs"]
-        collection = db["conversations"]
-        
-        document = {
-            "timestamp": datetime.utcnow(),
-            "course": course,
-            "cohort": cohort,
-            "blooms_level": level,
-            "user_query": user_query,
-            "ai_response": ai_response,
-            "session_id": session_id,
-            "user_id": user_id
-        }
-        
-        collection.insert_one(document)
-    except Exception:
-        pass
+    if mongo_client is not None:
+        try:
+            db = mongo_client["chatbot_logs"]
+            collection = db["conversations"]
+            log_entry["timestamp"] = datetime.utcnow()
+            collection.insert_one(log_entry)
+            return
+        except Exception:
+            pass
+    
+    # Fallback to local storage
+    save_local_log(log_entry)
 
 
 def create_or_update_user_session(mongo_client, user_id: str, user_name: str, course_id: str, 
@@ -362,67 +407,79 @@ def hash_password(password: str) -> str:
 
 
 def authenticate_user(mongo_client, username: str, password: str) -> dict:
-    """Authenticate user against MongoDB users collection."""
-    if mongo_client is None:
-        # Default user when no MongoDB
-        default_users = {
-            "suki": {"password": hash_password("suki123"), "user_id": "user_001", "name": "Suki"}
-        }
-        
-        if username in default_users and default_users[username]["password"] == hash_password(password):
-            return {
-                "authenticated": True,
-                "user_id": default_users[username]["user_id"],
-                "user_name": default_users[username]["name"],
-                "username": username
-            }
-        return {"authenticated": False}
+    """Authenticate user against MongoDB or local storage."""
+    # Try MongoDB first
+    if mongo_client is not None:
+        try:
+            db = mongo_client["chatbot_logs"]
+            collection = db["users"]
+            
+            user = collection.find_one({"username": username})
+            
+            if user and user.get("password") == hash_password(password):
+                return {
+                    "authenticated": True,
+                    "user_id": str(user.get("_id", user.get("user_id", ""))),
+                    "user_name": user.get("name", username),
+                    "username": username
+                }
+            return {"authenticated": False}
+        except Exception:
+            pass  # Fall through to local storage
     
-    try:
-        db = mongo_client["chatbot_logs"]
-        collection = db["users"]
-        
-        user = collection.find_one({"username": username})
-        
-        if user and user.get("password") == hash_password(password):
+    # Fallback to local storage
+    local_users = load_local_users()
+    if username in local_users:
+        stored = local_users[username]
+        if stored.get("password") == hash_password(password):
             return {
                 "authenticated": True,
-                "user_id": str(user.get("_id", user.get("user_id", ""))),
-                "user_name": user.get("name", username),
+                "user_id": stored.get("user_id", ""),
+                "user_name": stored.get("name", username),
                 "username": username
             }
-        return {"authenticated": False}
-    except Exception:
-        return {"authenticated": False}
+    return {"authenticated": False}
 
 
 def register_user(mongo_client, username: str, password: str, name: str) -> dict:
-    """Register a new user in MongoDB."""
-    if mongo_client is None:
-        return {"success": False, "message": "Database not available"}
+    """Register a new user in MongoDB or local storage."""
+    # Try MongoDB first
+    if mongo_client is not None:
+        try:
+            db = mongo_client["chatbot_logs"]
+            collection = db["users"]
+            
+            if collection.find_one({"username": username}):
+                return {"success": False, "message": "Username already exists"}
+            
+            user_id = str(uuid.uuid4())
+            document = {
+                "user_id": user_id,
+                "username": username,
+                "password": hash_password(password),
+                "name": name,
+                "created_at": datetime.utcnow()
+            }
+            
+            collection.insert_one(document)
+            return {"success": True, "user_id": user_id, "message": "User registered successfully"}
+        except Exception:
+            pass  # Fall through to local storage
     
-    try:
-        db = mongo_client["chatbot_logs"]
-        collection = db["users"]
-        
-        # Check if user already exists
-        if collection.find_one({"username": username}):
-            return {"success": False, "message": "Username already exists"}
-        
-        # Create new user
-        user_id = str(uuid.uuid4())
-        document = {
-            "user_id": user_id,
-            "username": username,
-            "password": hash_password(password),
-            "name": name,
-            "created_at": datetime.utcnow()
-        }
-        
-        collection.insert_one(document)
-        return {"success": True, "user_id": user_id, "message": "User registered successfully"}
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+    # Fallback to local storage
+    local_users = load_local_users()
+    if username in local_users:
+        return {"success": False, "message": "Username already exists"}
+    
+    user_id = str(uuid.uuid4())
+    local_users[username] = {
+        "user_id": user_id,
+        "password": hash_password(password),
+        "name": name,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    save_local_users(local_users)
+    return {"success": True, "user_id": user_id, "message": "User registered successfully (local storage)"}
 
 
 def get_gemini_response(system_prompt: str, chat_history: list, user_message: str) -> str:

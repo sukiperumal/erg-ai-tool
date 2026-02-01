@@ -1,6 +1,10 @@
 # Environment variables
 .env
 
+# Local storage fallback files
+local_users.json
+local_logs.json
+
 # Python
 __pycache__/
 *.py[cod]
