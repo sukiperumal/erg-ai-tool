@@ -17,6 +17,9 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 import certifi
 
+# Import authentication module
+from auth import render_login_page
+
 # Load environment variables
 load_dotenv()
 
@@ -28,11 +31,12 @@ st.set_page_config(
     page_title="AI Learning Assistant",
     page_icon="📚",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # Custom CSS for light, minimal design
-st.markdown("""
+st.markdown(
+    """
 <style>
     /* Force light theme */
     :root {
@@ -229,11 +233,14 @@ st.markdown("""
         margin: 1.5rem 0;
     }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # -----------------------------------------------------------------------------
 # Configuration and Initialization
 # -----------------------------------------------------------------------------
+
 
 def load_config() -> dict:
     """Load course and cohort configuration from JSON file."""
@@ -252,9 +259,9 @@ def load_config() -> dict:
 def init_gemini() -> bool:
     """Initialize Google Gemini API."""
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key or api_key == "your_gemini_api_key_here":
+    if not api_key:
         return False
-    
+
     try:
         genai.configure(api_key=api_key)
         return True
@@ -267,15 +274,15 @@ def get_mongo_client():
     mongo_uri = os.getenv("MONGO_URI")
     if not mongo_uri or mongo_uri == "your_mongodb_uri_here":
         return None
-    
+
     try:
         client = MongoClient(
-            mongo_uri, 
+            mongo_uri,
             serverSelectionTimeoutMS=5000,
             tls=True,
-            tlsAllowInvalidCertificates=True
+            tlsAllowInvalidCertificates=True,
         )
-        client.admin.command('ping')
+        client.admin.command("ping")
         return client
     except Exception as e:
         # Silently fail - we'll use local storage as fallback
@@ -283,22 +290,7 @@ def get_mongo_client():
 
 
 # --- Local Storage Fallback ---
-LOCAL_USERS_FILE = os.path.join(os.path.dirname(__file__), "local_users.json")
 LOCAL_LOGS_FILE = os.path.join(os.path.dirname(__file__), "local_logs.json")
-
-
-def load_local_users():
-    """Load users from local JSON file."""
-    if os.path.exists(LOCAL_USERS_FILE):
-        with open(LOCAL_USERS_FILE, "r") as f:
-            return json.load(f)
-    return {}
-
-
-def save_local_users(users):
-    """Save users to local JSON file."""
-    with open(LOCAL_USERS_FILE, "w") as f:
-        json.dump(users, f, indent=2)
 
 
 def load_local_logs():
@@ -317,7 +309,16 @@ def save_local_log(log_entry):
         json.dump(logs, f, indent=2, default=str)
 
 
-def log_conversation(mongo_client, course: str, cohort: str, level: int, user_query: str, ai_response: str, session_id: str, user_id: str = None):
+def log_conversation(
+    mongo_client,
+    course: str,
+    cohort: str,
+    level: int,
+    user_query: str,
+    ai_response: str,
+    session_id: str,
+    user_id: str = None,
+):
     """Log conversation to MongoDB or local file."""
     log_entry = {
         "timestamp": datetime.utcnow().isoformat(),
@@ -327,9 +328,9 @@ def log_conversation(mongo_client, course: str, cohort: str, level: int, user_qu
         "user_query": user_query,
         "ai_response": ai_response,
         "session_id": session_id,
-        "user_id": user_id
+        "user_id": user_id,
     }
-    
+
     if mongo_client is not None:
         try:
             db = mongo_client["chatbot_logs"]
@@ -339,45 +340,59 @@ def log_conversation(mongo_client, course: str, cohort: str, level: int, user_qu
             return
         except Exception:
             pass
-    
+
     # Fallback to local storage
     save_local_log(log_entry)
 
 
-def create_or_update_user_session(mongo_client, user_id: str, user_name: str, course_id: str, 
-                                   course_name: str, cohort_id: str, cohort_name: str, 
-                                   bloom_level: int, session_id: str, chat_entry: dict = None,
-                                   tokens_used: int = 0, is_end: bool = False):
+def create_or_update_user_session(
+    mongo_client,
+    user_id: str,
+    user_name: str,
+    course_id: str,
+    course_name: str,
+    cohort_id: str,
+    cohort_name: str,
+    bloom_level: int,
+    session_id: str,
+    chat_entry: dict = None,
+    tokens_used: int = 0,
+    is_end: bool = False,
+):
     """Create or update user session in MongoDB user_sessions collection."""
     if mongo_client is None:
         return
-    
+
     try:
         db = mongo_client["chatbot_logs"]
         collection = db["user_sessions"]
-        
+
         # Check if session exists
-        existing_session = collection.find_one({"session_id": session_id, "user_id": user_id})
-        
+        existing_session = collection.find_one(
+            {"session_id": session_id, "user_id": user_id}
+        )
+
         if existing_session:
             # Update existing session
             update_data = {
-                "chat_end_time": datetime.utcnow() if is_end else existing_session.get("chat_end_time")
+                "chat_end_time": datetime.utcnow()
+                if is_end
+                else existing_session.get("chat_end_time")
             }
-            
+
             if chat_entry:
                 collection.update_one(
                     {"session_id": session_id, "user_id": user_id},
                     {
                         "$push": {"chat_history": chat_entry},
                         "$inc": {"usage_tokens": tokens_used},
-                        "$set": update_data
-                    }
+                        "$set": update_data,
+                    },
                 )
             else:
                 collection.update_one(
                     {"session_id": session_id, "user_id": user_id},
-                    {"$set": update_data, "$inc": {"usage_tokens": tokens_used}}
+                    {"$set": update_data, "$inc": {"usage_tokens": tokens_used}},
                 )
         else:
             # Create new session
@@ -393,113 +408,33 @@ def create_or_update_user_session(mongo_client, user_id: str, user_name: str, co
                 "chat_start_time": datetime.utcnow(),
                 "chat_end_time": None,
                 "usage_tokens": tokens_used,
-                "chat_history": [chat_entry] if chat_entry else []
+                "chat_history": [chat_entry] if chat_entry else [],
             }
-            
+
             collection.insert_one(document)
     except Exception:
         pass
 
 
-def hash_password(password: str) -> str:
-    """Hash a password using SHA-256."""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-def authenticate_user(mongo_client, username: str, password: str) -> dict:
-    """Authenticate user against MongoDB or local storage."""
-    # Try MongoDB first
-    if mongo_client is not None:
-        try:
-            db = mongo_client["chatbot_logs"]
-            collection = db["users"]
-            
-            user = collection.find_one({"username": username})
-            
-            if user and user.get("password") == hash_password(password):
-                return {
-                    "authenticated": True,
-                    "user_id": str(user.get("_id", user.get("user_id", ""))),
-                    "user_name": user.get("name", username),
-                    "username": username
-                }
-            return {"authenticated": False}
-        except Exception:
-            pass  # Fall through to local storage
-    
-    # Fallback to local storage
-    local_users = load_local_users()
-    if username in local_users:
-        stored = local_users[username]
-        if stored.get("password") == hash_password(password):
-            return {
-                "authenticated": True,
-                "user_id": stored.get("user_id", ""),
-                "user_name": stored.get("name", username),
-                "username": username
-            }
-    return {"authenticated": False}
-
-
-def register_user(mongo_client, username: str, password: str, name: str) -> dict:
-    """Register a new user in MongoDB or local storage."""
-    # Try MongoDB first
-    if mongo_client is not None:
-        try:
-            db = mongo_client["chatbot_logs"]
-            collection = db["users"]
-            
-            if collection.find_one({"username": username}):
-                return {"success": False, "message": "Username already exists"}
-            
-            user_id = str(uuid.uuid4())
-            document = {
-                "user_id": user_id,
-                "username": username,
-                "password": hash_password(password),
-                "name": name,
-                "created_at": datetime.utcnow()
-            }
-            
-            collection.insert_one(document)
-            return {"success": True, "user_id": user_id, "message": "User registered successfully"}
-        except Exception:
-            pass  # Fall through to local storage
-    
-    # Fallback to local storage
-    local_users = load_local_users()
-    if username in local_users:
-        return {"success": False, "message": "Username already exists"}
-    
-    user_id = str(uuid.uuid4())
-    local_users[username] = {
-        "user_id": user_id,
-        "password": hash_password(password),
-        "name": name,
-        "created_at": datetime.utcnow().isoformat()
-    }
-    save_local_users(local_users)
-    return {"success": True, "user_id": user_id, "message": "User registered successfully (local storage)"}
-
-
-def get_gemini_response(system_prompt: str, chat_history: list, user_message: str) -> str:
+def get_gemini_response(
+    system_prompt: str, chat_history: list, user_message: str
+) -> str:
     """Get response from Gemini API."""
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
-            system_instruction=system_prompt
+            model_name="gemini-2.0-flash", system_instruction=system_prompt
         )
-        
+
         history = []
         for msg in chat_history:
             role = "user" if msg["role"] == "user" else "model"
             history.append({"role": role, "parts": [msg["content"]]})
-        
+
         chat = model.start_chat(history=history)
         response = chat.send_message(user_message)
-        
+
         return response.text
-    
+
     except Exception as e:
         return f"I apologize, but I encountered an error: {str(e)}"
 
@@ -508,46 +443,51 @@ def get_gemini_response(system_prompt: str, chat_history: list, user_message: st
 # Session State
 # -----------------------------------------------------------------------------
 
+
 def init_session_state(config: dict):
     """Initialize session state variables."""
     if "session_id" not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())
-    
+
     if "current_view" not in st.session_state:
         st.session_state.current_view = "login"
-    
+
     if "selected_course" not in st.session_state:
         st.session_state.selected_course = None
-    
+
     if "selected_cohort" not in st.session_state:
         st.session_state.selected_cohort = None
-    
+
     if "selected_level" not in st.session_state:
         st.session_state.selected_level = None
-    
+
     if "chat_histories" not in st.session_state:
         st.session_state.chat_histories = {}
-    
+
     # Login-related session state
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
-    
+
     if "user_id" not in st.session_state:
         st.session_state.user_id = None
-    
+
     if "user_name" not in st.session_state:
         st.session_state.user_name = None
-    
+
     if "username" not in st.session_state:
         st.session_state.username = None
-    
+
     if "chat_start_time" not in st.session_state:
         st.session_state.chat_start_time = None
 
 
 def get_chat_key() -> str:
     """Get unique key for current course/cohort/level chat history."""
-    if st.session_state.selected_course and st.session_state.selected_cohort and st.session_state.selected_level:
+    if (
+        st.session_state.selected_course
+        and st.session_state.selected_cohort
+        and st.session_state.selected_level
+    ):
         return f"{st.session_state.selected_course['id']}_{st.session_state.selected_cohort['id']}_{st.session_state.selected_level}"
     return None
 
@@ -556,11 +496,12 @@ def get_chat_key() -> str:
 # UI Components
 # -----------------------------------------------------------------------------
 
+
 def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
     """Render sidebar with navigation and status."""
     with st.sidebar:
         st.markdown("### 📚 AI Learning Assistant")
-        
+
         # Home button - always visible when logged in
         if st.session_state.logged_in:
             if st.button("🏠 Home", use_container_width=True, key="home_btn"):
@@ -569,46 +510,66 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
                 st.session_state.selected_cohort = None
                 st.session_state.selected_level = None
                 st.rerun()
-        
+
         st.markdown("---")
-        
+
         if st.session_state.current_view == "chat":
             if st.button("← Back", use_container_width=True):
                 st.session_state.current_view = "level_selection"
                 st.rerun()
-            
+
             st.markdown("---")
-            
-            if st.session_state.selected_course and st.session_state.selected_cohort and st.session_state.selected_level:
+
+            if (
+                st.session_state.selected_course
+                and st.session_state.selected_cohort
+                and st.session_state.selected_level
+            ):
                 st.markdown("**Course**")
-                st.info(f"{st.session_state.selected_course['icon']} {st.session_state.selected_course['name']}")
-                
+                st.info(
+                    f"{st.session_state.selected_course['icon']} {st.session_state.selected_course['name']}"
+                )
+
                 st.markdown("**Cohort**")
-                cohort_type = st.session_state.selected_cohort['type']
+                cohort_type = st.session_state.selected_cohort["type"]
                 if cohort_type == "teacher":
-                    st.markdown('<span class="cohort-badge badge-teacher">👩‍🏫 Teacher Led</span>', unsafe_allow_html=True)
+                    st.markdown(
+                        '<span class="cohort-badge badge-teacher">👩‍🏫 Teacher Led</span>',
+                        unsafe_allow_html=True,
+                    )
                 elif cohort_type == "hybrid":
-                    st.markdown('<span class="cohort-badge badge-hybrid">🤝 Teacher + AI</span>', unsafe_allow_html=True)
+                    st.markdown(
+                        '<span class="cohort-badge badge-hybrid">🤝 Teacher + AI</span>',
+                        unsafe_allow_html=True,
+                    )
                 else:
-                    st.markdown('<span class="cohort-badge badge-ai">🤖 AI Led</span>', unsafe_allow_html=True)
-                
+                    st.markdown(
+                        '<span class="cohort-badge badge-ai">🤖 AI Led</span>',
+                        unsafe_allow_html=True,
+                    )
+
                 st.markdown("**Bloom's Level**")
                 level = st.session_state.selected_level
-                level_info = st.session_state.selected_cohort['levels'].get(str(level), {})
-                level_name = level_info.get('name', f'Level {level}')
-                blooms_levels = config.get('blooms_levels', [])
-                level_data = next((l for l in blooms_levels if l['id'] == level), None)
+                level_info = st.session_state.selected_cohort["levels"].get(
+                    str(level), {}
+                )
+                level_name = level_info.get("name", f"Level {level}")
+                blooms_levels = config.get("blooms_levels", [])
+                level_data = next((l for l in blooms_levels if l["id"] == level), None)
                 if level_data:
-                    st.markdown(f"<span class='blooms-badge blooms-{level}'>{level_data['icon']} {level_name}</span>", unsafe_allow_html=True)
-                
+                    st.markdown(
+                        f"<span class='blooms-badge blooms-{level}'>{level_data['icon']} {level_name}</span>",
+                        unsafe_allow_html=True,
+                    )
+
                 st.markdown("---")
-                
+
                 if st.button("🗑️ Clear Chat", use_container_width=True):
                     chat_key = get_chat_key()
                     if chat_key:
                         st.session_state.chat_histories[chat_key] = []
                     st.rerun()
-        
+
         elif st.session_state.current_view in ["cohort_selection", "level_selection"]:
             if st.button("← Back", use_container_width=True):
                 if st.session_state.current_view == "level_selection":
@@ -617,7 +578,7 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
                     st.session_state.current_view = "course_selection"
                     st.session_state.selected_course = None
                 st.rerun()
-        
+
         # User info and logout at bottom
         if st.session_state.logged_in:
             st.markdown("---")
@@ -636,27 +597,35 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
 def render_course_selection(config: dict):
     """Render course selection view."""
     st.markdown('<p class="main-header">Choose Your Course</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Select a course to begin your learning journey</p>', unsafe_allow_html=True)
-    
+    st.markdown(
+        '<p class="sub-header">Select a course to begin your learning journey</p>',
+        unsafe_allow_html=True,
+    )
+
     courses = config.get("courses", [])
-    
+
     if not courses:
         st.warning("No courses available. Please check the configuration.")
         return
-    
+
     cols = st.columns(len(courses))
-    
+
     for idx, course in enumerate(courses):
         with cols[idx]:
-            st.markdown(f"""
+            st.markdown(
+                f"""
             <div class="course-card">
-                <div class="course-icon">{course['icon']}</div>
-                <div class="course-name">{course['name']}</div>
-                <div class="course-desc">{course['description']}</div>
+                <div class="course-icon">{course["icon"]}</div>
+                <div class="course-name">{course["name"]}</div>
+                <div class="course-desc">{course["description"]}</div>
             </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button(f"Select", key=f"course_{course['id']}", use_container_width=True):
+            """,
+                unsafe_allow_html=True,
+            )
+
+            if st.button(
+                f"Select", key=f"course_{course['id']}", use_container_width=True
+            ):
                 st.session_state.selected_course = course
                 st.session_state.current_view = "cohort_selection"
                 st.rerun()
@@ -665,52 +634,63 @@ def render_course_selection(config: dict):
 def render_cohort_selection():
     """Render cohort selection view."""
     course = st.session_state.selected_course
-    
+
     if not course:
         st.session_state.current_view = "course_selection"
         st.rerun()
         return
-    
-    st.markdown(f'<p class="main-header">{course["icon"]} {course["name"]}</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Choose your learning cohort type</p>', unsafe_allow_html=True)
-    
+
+    st.markdown(
+        f'<p class="main-header">{course["icon"]} {course["name"]}</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p class="sub-header">Choose your learning cohort type</p>',
+        unsafe_allow_html=True,
+    )
+
     cohorts = course.get("cohorts", [])
     cols = st.columns(3)
-    
+
     cohort_info = {
-        "teacher": {
-            "icon": "👩‍🏫",
-            "title": "Teacher Led",
-            "desc": "AI provides supplementary support. Teacher is the primary instructor.",
-            "color": "badge-teacher"
-        },
+        # "teacher": {
+        #    "icon": "👩‍🏫",
+        #    "title": "Teacher Led",
+        #    "desc": "AI provides supplementary support. Teacher is the primary instructor.",
+        #    "color": "badge-teacher"
+        # },
         "hybrid": {
             "icon": "🤝",
             "title": "Teacher + AI Led",
             "desc": "AI actively assists teaching. Collaborative learning experience.",
-            "color": "badge-hybrid"
+            "color": "badge-hybrid",
         },
         "ai": {
             "icon": "🤖",
             "title": "AI Led",
             "desc": "AI is the primary instructor. Comprehensive autonomous teaching.",
-            "color": "badge-ai"
-        }
+            "color": "badge-ai",
+        },
     }
-    
+
     for idx, cohort in enumerate(cohorts):
         info = cohort_info.get(cohort["type"], cohort_info["ai"])
-        
+
         with cols[idx]:
-            st.markdown(f"""
+            st.markdown(
+                f"""
             <div class="course-card">
-                <div class="course-icon">{info['icon']}</div>
-                <div class="course-name">{info['title']}</div>
-                <div class="course-desc">{info['desc']}</div>
+                <div class="course-icon">{info["icon"]}</div>
+                <div class="course-name">{info["title"]}</div>
+                <div class="course-desc">{info["desc"]}</div>
             </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button(f"Select", key=f"cohort_{cohort['id']}", use_container_width=True):
+            """,
+                unsafe_allow_html=True,
+            )
+
+            if st.button(
+                f"Select", key=f"cohort_{cohort['id']}", use_container_width=True
+            ):
                 st.session_state.selected_cohort = cohort
                 st.session_state.current_view = "level_selection"
                 st.rerun()
@@ -720,20 +700,26 @@ def render_level_selection(config: dict):
     """Render Bloom's taxonomy level selection view."""
     course = st.session_state.selected_course
     cohort = st.session_state.selected_cohort
-    
+
     if not course or not cohort:
         st.session_state.current_view = "course_selection"
         st.rerun()
         return
-    
+
     cohort_icons = {"teacher": "👩‍🏫", "hybrid": "🤝", "ai": "🤖"}
     icon = cohort_icons.get(cohort["type"], "🤖")
-    
-    st.markdown(f'<p class="main-header">{course["icon"]} {course["name"]} — {icon} {cohort["name"]}</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Select your Bloom\'s Taxonomy level</p>', unsafe_allow_html=True)
-    
+
+    st.markdown(
+        f'<p class="main-header">{course["icon"]} {course["name"]} — {icon} {cohort["name"]}</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p class="sub-header">Select your Bloom\'s Taxonomy level</p>',
+        unsafe_allow_html=True,
+    )
+
     blooms_levels = config.get("blooms_levels", [])
-    
+
     # Create 2 rows of 3 levels each
     for row in range(2):
         cols = st.columns(3)
@@ -741,33 +727,43 @@ def render_level_selection(config: dict):
             level_idx = row * 3 + col_idx
             if level_idx < len(blooms_levels):
                 level = blooms_levels[level_idx]
-                level_id = level['id']
-                
+                level_id = level["id"]
+
                 with cols[col_idx]:
                     # Check if this level exists in the cohort
-                    level_data = cohort.get('levels', {}).get(str(level_id))
-                    
+                    level_data = cohort.get("levels", {}).get(str(level_id))
+
                     if level_data:
-                        st.markdown(f"""
+                        st.markdown(
+                            f"""
                         <div class="level-card">
-                            <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">{level['icon']}</div>
-                            <div style="font-weight: 600; color: #1a1a1a;">Level {level_id}: {level['name']}</div>
-                            <div style="font-size: 0.8rem; color: #666;">{level['description']}</div>
+                            <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">{level["icon"]}</div>
+                            <div style="font-weight: 600; color: #1a1a1a;">Level {level_id}: {level["name"]}</div>
+                            <div style="font-size: 0.8rem; color: #666;">{level["description"]}</div>
                         </div>
-                        """, unsafe_allow_html=True)
-                        
-                        if st.button(f"Start Level {level_id}", key=f"level_{level_id}", use_container_width=True):
+                        """,
+                            unsafe_allow_html=True,
+                        )
+
+                        if st.button(
+                            f"Start Level {level_id}",
+                            key=f"level_{level_id}",
+                            use_container_width=True,
+                        ):
                             st.session_state.selected_level = level_id
                             st.session_state.current_view = "chat"
                             st.rerun()
                     else:
-                        st.markdown(f"""
+                        st.markdown(
+                            f"""
                         <div class="level-card" style="opacity: 0.5;">
-                            <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">{level['icon']}</div>
-                            <div style="font-weight: 600; color: #999;">Level {level_id}: {level['name']}</div>
+                            <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">{level["icon"]}</div>
+                            <div style="font-weight: 600; color: #999;">Level {level_id}: {level["name"]}</div>
                             <div style="font-size: 0.8rem; color: #999;">Not available</div>
                         </div>
-                        """, unsafe_allow_html=True)
+                        """,
+                            unsafe_allow_html=True,
+                        )
 
 
 def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
@@ -775,27 +771,30 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
     course = st.session_state.selected_course
     cohort = st.session_state.selected_cohort
     level = st.session_state.selected_level
-    
+
     if not course or not cohort or not level:
         st.session_state.current_view = "course_selection"
         st.rerun()
         return
-    
+
     # Get level data
-    level_data = cohort.get('levels', {}).get(str(level), {})
-    level_name = level_data.get('name', f'Level {level}')
-    system_prompt = level_data.get('system_prompt', '')
-    
+    level_data = cohort.get("levels", {}).get(str(level), {})
+    level_name = level_data.get("name", f"Level {level}")
+    system_prompt = level_data.get("system_prompt", "")
+
     # Header
     cohort_icons = {"teacher": "👩‍🏫", "hybrid": "🤝", "ai": "🤖"}
     cohort_icon = cohort_icons.get(cohort["type"], "🤖")
-    
-    blooms_levels = config.get('blooms_levels', [])
-    blooms_data = next((l for l in blooms_levels if l['id'] == level), None)
-    level_icon = blooms_data['icon'] if blooms_data else "📝"
-    
-    st.markdown(f'<p class="main-header">{course["icon"]} {course["name"]} — {cohort_icon} {cohort["name"]} — {level_icon} {level_name}</p>', unsafe_allow_html=True)
-    
+
+    blooms_levels = config.get("blooms_levels", [])
+    blooms_data = next((l for l in blooms_levels if l["id"] == level), None)
+    level_icon = blooms_data["icon"] if blooms_data else "📝"
+
+    st.markdown(
+        f'<p class="main-header">{course["icon"]} {course["name"]} — {cohort_icon} {cohort["name"]} — {level_icon} {level_name}</p>',
+        unsafe_allow_html=True,
+    )
+
     # Exit Chat button
     col1, col2, col3 = st.columns([1, 1, 1])
     with col3:
@@ -803,60 +802,62 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
             st.session_state.current_view = "level_selection"
             st.session_state.selected_level = None
             st.rerun()
-    
+
     # Show resources if available
-    resources = level_data.get('resources', [])
+    resources = level_data.get("resources", [])
     if resources:
         with st.expander("📚 Learning Resources", expanded=False):
             for resource in resources:
                 st.markdown(f"• {resource}")
-    
+
     # Get or initialize chat history
     chat_key = get_chat_key()
     if chat_key not in st.session_state.chat_histories:
         st.session_state.chat_histories[chat_key] = []
-    
+
     chat_history = st.session_state.chat_histories[chat_key]
-    
+
     # Display welcome message if no history
     if not chat_history:
         welcome_messages = {
             "teacher": f"Welcome to {course['name']} - {level_name}! I'm here to support your teacher-led learning at this level. Ask me any questions about the material.",
             "hybrid": f"Welcome to {course['name']} - {level_name}! I'm your AI teaching assistant. Let's work through this level together!",
-            "ai": f"Welcome to {course['name']} - {level_name}! I'll be your primary instructor for this level. Let's begin!"
+            "ai": f"Welcome to {course['name']} - {level_name}! I'll be your primary instructor for this level. Let's begin!",
         }
-        
+
         with st.chat_message("assistant"):
             st.markdown(welcome_messages.get(cohort["type"], welcome_messages["ai"]))
-    
+
     # Display chat history
     for message in chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-    
+
     # Chat input
     if not gemini_ready:
-        st.warning("⚠️ AI is not configured. Please add your Gemini API key to the .env file.")
+        st.warning(
+            "⚠️ AI is not configured. Please add your Gemini API key to the .env file."
+        )
         return
-    
+
     if prompt := st.chat_input("Type your message..."):
         chat_history.append({"role": "user", "content": prompt})
-        
+
         with st.chat_message("user"):
             st.markdown(prompt)
-        
+
         with st.chat_message("assistant"):
             with st.spinner(""):
                 response = get_gemini_response(
                     system_prompt=system_prompt,
                     chat_history=chat_history[:-1],
-                    user_message=prompt
+                    user_message=prompt,
                 )
                 st.markdown(response)
-        
+
         chat_history.append({"role": "assistant", "content": response})
         st.session_state.chat_histories[chat_key] = chat_history
-        
+
         log_conversation(
             mongo_client=mongo_client,
             course=course["name"],
@@ -865,16 +866,16 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
             user_query=prompt,
             ai_response=response,
             session_id=st.session_state.session_id,
-            user_id=st.session_state.user_id
+            user_id=st.session_state.user_id,
         )
-        
+
         # Update user session in MongoDB
         chat_entry = {
             "timestamp": datetime.utcnow().isoformat(),
             "user_question": prompt,
-            "ai_response": response
+            "ai_response": response,
         }
-        
+
         create_or_update_user_session(
             mongo_client=mongo_client,
             user_id=st.session_state.user_id,
@@ -886,105 +887,43 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
             bloom_level=level,
             session_id=st.session_state.session_id,
             chat_entry=chat_entry,
-            tokens_used=len(prompt.split()) + len(response.split())
+            tokens_used=len(prompt.split()) + len(response.split()),
         )
-
-
-# -----------------------------------------------------------------------------
-# Login Page
-# -----------------------------------------------------------------------------
-
-def render_login_page(mongo_client):
-    """Render the login page."""
-    st.markdown('<p class="main-header">🔐 Login to AI Learning Assistant</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Please enter your credentials to continue</p>', unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        tab1, tab2 = st.tabs(["Login", "Register"])
-        
-        with tab1:
-            with st.form("login_form"):
-                username = st.text_input("Username", placeholder="Enter your username")
-                password = st.text_input("Password", type="password", placeholder="Enter your password")
-                
-                submit_button = st.form_submit_button("Login", use_container_width=True)
-                
-                if submit_button:
-                    if username and password:
-                        result = authenticate_user(mongo_client, username, password)
-                        if result["authenticated"]:
-                            st.session_state.logged_in = True
-                            st.session_state.user_id = result["user_id"]
-                            st.session_state.user_name = result["user_name"]
-                            st.session_state.username = result["username"]
-                            st.session_state.current_view = "course_selection"
-                            st.session_state.session_id = str(uuid.uuid4())
-                            st.success("Login successful!")
-                            st.rerun()
-                        else:
-                            st.error("Invalid username or password")
-                    else:
-                        st.warning("Please enter both username and password")
-        
-        with tab2:
-            with st.form("register_form"):
-                new_name = st.text_input("Full Name", placeholder="Enter your full name")
-                new_username = st.text_input("Username", placeholder="Choose a username", key="reg_username")
-                new_password = st.text_input("Password", type="password", placeholder="Choose a password", key="reg_password")
-                confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
-                
-                register_button = st.form_submit_button("Register", use_container_width=True)
-                
-                if register_button:
-                    if new_name and new_username and new_password and confirm_password:
-                        if new_password != confirm_password:
-                            st.error("Passwords do not match")
-                        elif len(new_password) < 6:
-                            st.error("Password must be at least 6 characters")
-                        else:
-                            result = register_user(mongo_client, new_username, new_password, new_name)
-                            if result["success"]:
-                                st.success(result["message"] + " Please login.")
-                            else:
-                                st.error(result["message"])
-                    else:
-                        st.warning("Please fill in all fields")
 
 
 # -----------------------------------------------------------------------------
 # Main Application
 # -----------------------------------------------------------------------------
 
+
 def main():
     """Main application entry point."""
     config = load_config()
-    
+
     if not config.get("courses"):
         st.error("No courses configured. Please check prompts_new.json.")
         st.stop()
-    
+
     init_session_state(config)
     gemini_ready = init_gemini()
     mongo_client = get_mongo_client()
-    
+
     # Check if user is logged in
     if not st.session_state.logged_in:
         render_login_page(mongo_client)
         return
-    
+
     render_sidebar(config, gemini_ready, mongo_client is not None)
-    
+
     if st.session_state.current_view == "course_selection":
         render_course_selection(config)
-    
+
     elif st.session_state.current_view == "cohort_selection":
         render_cohort_selection()
-    
+
     elif st.session_state.current_view == "level_selection":
         render_level_selection(config)
-    
+
     elif st.session_state.current_view == "chat":
         render_chat_interface(config, mongo_client, gemini_ready)
 
