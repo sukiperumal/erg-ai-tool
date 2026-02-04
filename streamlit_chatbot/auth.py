@@ -42,53 +42,53 @@ def authenticate_user(mongo_client, username: str, password: str) -> dict:
     # BYPASS AUTHENTICATION FOR TESTING
     # Default credentials: username="test", password="test"
     # ============================================
-    if username == "test" and password == "test":
-        return {
-            "authenticated": True,
-            "user_id": "test-user-123",
-            "user_name": "Test User",
-            "username": "test",
-        }
-    # Also accept any non-empty username/password for testing
-    if username and password:
-        return {
-            "authenticated": True,
-            "user_id": f"user-{username}",
-            "user_name": username.capitalize(),
-            "username": username,
-        }
+    # if username == "test" and password == "test":
+    #    return {
+    #        "authenticated": True,
+    #        "user_id": "test-user-123",
+    #        "user_name": "Test User",
+    #        "username": "test",
+    #    }
+    ## Also accept any non-empty username/password for testing
+    # if username and password:
+    #    return {
+    #        "authenticated": True,
+    #        "user_id": f"user-{username}",
+    #        "user_name": username.capitalize(),
+    #        "username": username,
+    #    }
     # ============================================
 
-    # # Try MongoDB first
-    # if mongo_client is not None:
-    #     try:
-    #         db = mongo_client["chatbot_logs"]
-    #         collection = db["users"]
+    # Try MongoDB first
+    if mongo_client is not None:
+        try:
+            db = mongo_client["chatbot_logs"]
+            collection = db["users"]
 
-    #         user = collection.find_one({"username": username})
+            user = collection.find_one({"username": username})
 
-    #         if user and user.get("password") == hash_password(password):
-    #             return {
-    #                 "authenticated": True,
-    #                 "user_id": str(user.get("_id", user.get("user_id", ""))),
-    #                 "user_name": user.get("name", username),
-    #                 "username": username,
-    #             }
-    #         return {"authenticated": False}
-    #     except Exception:
-    #         pass  # Fall through to local storage
+            if user and user.get("password") == hash_password(password):
+                return {
+                    "authenticated": True,
+                    "user_id": str(user.get("_id", user.get("user_id", ""))),
+                    "user_name": user.get("name", username),
+                    "username": username,
+                }
+            return {"authenticated": False}
+        except Exception:
+            pass  # Fall through to local storage
 
-    # # Fallback to local storage
-    # local_users = load_local_users()
-    # if username in local_users:
-    #     stored = local_users[username]
-    #     if stored.get("password") == hash_password(password):
-    #         return {
-    #             "authenticated": True,
-    #             "user_id": stored.get("user_id", ""),
-    #             "user_name": stored.get("name", username),
-    #             "username": username,
-    #         }
+    # Fallback to local storage
+    local_users = load_local_users()
+    if username in local_users:
+        stored = local_users[username]
+        if stored.get("password") == hash_password(password):
+            return {
+                "authenticated": True,
+                "user_id": stored.get("user_id", ""),
+                "user_name": stored.get("name", username),
+                "username": username,
+            }
     return {"authenticated": False}
 
 

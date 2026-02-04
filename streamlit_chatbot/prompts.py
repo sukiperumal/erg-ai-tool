@@ -584,6 +584,8 @@ Part 3: Valuation Methods Hierarchy
     *   *If they say Contingent Valuation:* Ask, "Contingent Valuation asks people questions (Stated). Which method looks at *behavior* like driving cars to a park?"
     *   *If they are stuck:* Ask, "Look at Level 2 in your notes. Which method uses 'travel expenses' to estimate value?"
 
+The answers for all the questions are:
+
 **Tone:**
 Helpful, specific, and encouraging. Keep responses short.
 """
