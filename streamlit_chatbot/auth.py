@@ -37,86 +37,123 @@ def hash_password(password: str) -> str:
 
 def authenticate_user(mongo_client, username: str, password: str) -> dict:
     """Authenticate user against MongoDB or local storage."""
-    # Try MongoDB first
-    if mongo_client is not None:
-        try:
-            db = mongo_client["chatbot_logs"]
-            collection = db["users"]
 
-            user = collection.find_one({"username": username})
+    # ============================================
+    # BYPASS AUTHENTICATION FOR TESTING
+    # Default credentials: username="test", password="test"
+    # ============================================
+    if username == "test" and password == "test":
+        return {
+            "authenticated": True,
+            "user_id": "test-user-123",
+            "user_name": "Test User",
+            "username": "test",
+        }
+    # Also accept any non-empty username/password for testing
+    if username and password:
+        return {
+            "authenticated": True,
+            "user_id": f"user-{username}",
+            "user_name": username.capitalize(),
+            "username": username,
+        }
+    # ============================================
 
-            if user and user.get("password") == hash_password(password):
-                return {
-                    "authenticated": True,
-                    "user_id": str(user.get("_id", user.get("user_id", ""))),
-                    "user_name": user.get("name", username),
-                    "username": username,
-                }
-            return {"authenticated": False}
-        except Exception:
-            pass  # Fall through to local storage
+    # # Try MongoDB first
+    # if mongo_client is not None:
+    #     try:
+    #         db = mongo_client["chatbot_logs"]
+    #         collection = db["users"]
 
-    # Fallback to local storage
-    local_users = load_local_users()
-    if username in local_users:
-        stored = local_users[username]
-        if stored.get("password") == hash_password(password):
-            return {
-                "authenticated": True,
-                "user_id": stored.get("user_id", ""),
-                "user_name": stored.get("name", username),
-                "username": username,
-            }
+    #         user = collection.find_one({"username": username})
+
+    #         if user and user.get("password") == hash_password(password):
+    #             return {
+    #                 "authenticated": True,
+    #                 "user_id": str(user.get("_id", user.get("user_id", ""))),
+    #                 "user_name": user.get("name", username),
+    #                 "username": username,
+    #             }
+    #         return {"authenticated": False}
+    #     except Exception:
+    #         pass  # Fall through to local storage
+
+    # # Fallback to local storage
+    # local_users = load_local_users()
+    # if username in local_users:
+    #     stored = local_users[username]
+    #     if stored.get("password") == hash_password(password):
+    #         return {
+    #             "authenticated": True,
+    #             "user_id": stored.get("user_id", ""),
+    #             "user_name": stored.get("name", username),
+    #             "username": username,
+    #         }
     return {"authenticated": False}
 
 
 def register_user(mongo_client, username: str, password: str, name: str) -> dict:
     """Register a new user in MongoDB or local storage."""
-    # Try MongoDB first
-    if mongo_client is not None:
-        try:
-            db = mongo_client["chatbot_logs"]
-            collection = db["users"]
 
-            if collection.find_one({"username": username}):
-                return {"success": False, "message": "Username already exists"}
+    # ============================================
+    # BYPASS REGISTRATION FOR TESTING
+    # Accept any registration for testing purposes
+    # ============================================
+    if username and password and name:
+        return {
+            "success": True,
+            "user_id": f"user-{username}",
+            "message": "User registered successfully (testing mode)",
+        }
+    # ============================================
 
-            user_id = str(uuid.uuid4())
-            document = {
-                "user_id": user_id,
-                "username": username,
-                "password": hash_password(password),
-                "name": name,
-                "created_at": datetime.utcnow(),
-            }
+    # # Try MongoDB first
+    # if mongo_client is not None:
+    #     try:
+    #         db = mongo_client["chatbot_logs"]
+    #         collection = db["users"]
 
-            collection.insert_one(document)
-            return {
-                "success": True,
-                "user_id": user_id,
-                "message": "User registered successfully",
-            }
-        except Exception:
-            pass  # Fall through to local storage
+    #         if collection.find_one({"username": username}):
+    #             return {"success": False, "message": "Username already exists"}
 
-    # Fallback to local storage
-    local_users = load_local_users()
-    if username in local_users:
-        return {"success": False, "message": "Username already exists"}
+    #         user_id = str(uuid.uuid4())
+    #         document = {
+    #             "user_id": user_id,
+    #             "username": username,
+    #             "password": hash_password(password),
+    #             "name": name,
+    #             "created_at": datetime.utcnow(),
+    #         }
 
-    user_id = str(uuid.uuid4())
-    local_users[username] = {
-        "user_id": user_id,
-        "password": hash_password(password),
-        "name": name,
-        "created_at": datetime.utcnow().isoformat(),
-    }
-    save_local_users(local_users)
-    return {
-        "success": True,
-        "user_id": user_id,
-        "message": "User registered successfully (local storage)",
-    }
+    #         collection.insert_one(document)
+    #         return {
+    #             "success": True,
+    #             "user_id": user_id,
+    #             "message": "User registered successfully",
+    #         }
+    #     except Exception:
+    #         pass  # Fall through to local storage
+
+    # # Fallback to local storage
+    # local_users = load_local_users()
+    # if username in local_users:
+    #     return {"success": False, "message": "Username already exists"}
+
+    # user_id = str(uuid.uuid4())
+    # local_users[username] = {
+    #     "user_id": user_id,
+    #     "password": hash_password(password),
+    #     "name": name,
+    #     "created_at": datetime.utcnow().isoformat(),
+    # }
+    # save_local_users(local_users)
+    # return {
+    #     "success": True,
+    #     "user_id": user_id,
+    #     "message": "User registered successfully (local storage)",
+    # }
+
+    return {"success": False, "message": "Invalid registration data"}
 
 
 def render_login_page(mongo_client):

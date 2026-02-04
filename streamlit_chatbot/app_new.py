@@ -333,12 +333,7 @@ def render_sidebar(config: dict, gemini_ready: bool, mongo_ready: bool):
 
                 st.markdown("**Cohort**")
                 cohort_type = st.session_state.selected_cohort["type"]
-                if cohort_type == "teacher":
-                    st.markdown(
-                        '<span class="cohort-badge badge-teacher">👩‍🏫 Teacher Led</span>',
-                        unsafe_allow_html=True,
-                    )
-                elif cohort_type == "hybrid":
+                if cohort_type == "hybrid":
                     st.markdown(
                         '<span class="cohort-badge badge-hybrid">🤝 Teacher + AI</span>',
                         unsafe_allow_html=True,
@@ -451,15 +446,16 @@ def render_cohort_selection():
     )
 
     cohorts = course.get("cohorts", [])
-    cols = st.columns(3)
+    # Filter out teacher-led cohorts
+    cohorts = [c for c in cohorts if c.get("type") != "teacher"]
+
+    if not cohorts:
+        st.warning("No cohorts available for this course.")
+        return
+
+    cols = st.columns(len(cohorts))
 
     cohort_info = {
-        # "teacher": {
-        #    "icon": "👩‍🏫",
-        #    "title": "Teacher Led",
-        #    "desc": "AI provides supplementary support. Teacher is the primary instructor.",
-        #    "color": "badge-teacher"
-        # },
         "hybrid": {
             "icon": "🤝",
             "title": "Teacher + AI Led",
@@ -507,7 +503,7 @@ def render_level_selection(config: dict):
         st.rerun()
         return
 
-    cohort_icons = {"teacher": "👩‍🏫", "hybrid": "🤝", "ai": "🤖"}
+    cohort_icons = {"hybrid": "🤝", "ai": "🤖"}
     icon = cohort_icons.get(cohort["type"], "🤖")
 
     st.markdown(
@@ -584,7 +580,7 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
     system_prompt = level_data.get("system_prompt", "")
 
     # Header
-    cohort_icons = {"teacher": "👩‍🏫", "hybrid": "🤝", "ai": "🤖"}
+    cohort_icons = {"hybrid": "🤝", "ai": "🤖"}
     cohort_icon = cohort_icons.get(cohort["type"], "🤖")
 
     blooms_levels = config.get("blooms_levels", [])
@@ -621,7 +617,6 @@ def render_chat_interface(config: dict, mongo_client, gemini_ready: bool):
     # Display welcome message if no history
     if not chat_history:
         welcome_messages = {
-            "teacher": f"Welcome to {course['name']} - {level_name}! I'm here to support your teacher-led learning at this level. Ask me any questions about the material.",
             "hybrid": f"Welcome to {course['name']} - {level_name}! I'm your AI teaching assistant. Let's work through this level together!",
             "ai": f"Welcome to {course['name']} - {level_name}! I'll be your primary instructor for this level. Let's begin!",
         }

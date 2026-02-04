@@ -1,11 +1,41 @@
 {
   "blooms_levels": [
-    {"id": 1, "name": "Remember", "icon": "📝", "description": "Recall facts and basic concepts"},
-    {"id": 2, "name": "Understand", "icon": "💡", "description": "Explain ideas and concepts"},
-    {"id": 3, "name": "Apply", "icon": "🔧", "description": "Use information in new situations"},
-    {"id": 4, "name": "Analyze", "icon": "🔍", "description": "Draw connections among ideas"},
-    {"id": 5, "name": "Evaluate", "icon": "⚖️", "description": "Justify decisions or actions"},
-    {"id": 6, "name": "Create", "icon": "🎨", "description": "Produce new or original work"}
+    {
+      "id": 1,
+      "name": "Remember",
+      "icon": "📝",
+      "description": "Recall facts and basic concepts"
+    },
+    {
+      "id": 2,
+      "name": "Understand",
+      "icon": "💡",
+      "description": "Explain ideas and concepts"
+    },
+    {
+      "id": 3,
+      "name": "Apply",
+      "icon": "🔧",
+      "description": "Use information in new situations"
+    },
+    {
+      "id": 4,
+      "name": "Analyze",
+      "icon": "🔍",
+      "description": "Draw connections among ideas"
+    },
+    {
+      "id": 5,
+      "name": "Evaluate",
+      "icon": "⚖️",
+      "description": "Justify decisions or actions"
+    },
+    {
+      "id": 6,
+      "name": "Create",
+      "icon": "🎨",
+      "description": "Produce new or original work"
+    }
   ],
   "courses": [
     {
@@ -357,7 +387,7 @@
           "levels": {
             "1": {
               "name": "Remember",
-              "system_prompt": "You are an active teaching assistant for an Environmental CBA course (Teacher + AI Co-Reasoning, Level 1: Remember). Use INTERACTIVE methods: Quiz on CBA terminology, Create flashcards for valuation methods, Test understanding of discounting concepts. Provide immediate feedback. Use spaced repetition. Make recall active."
+              "system_prompt": ""
             },
             "2": {
               "name": "Understand",

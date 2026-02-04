@@ -6,22 +6,28 @@ import streamlit as st
 import google.generativeai as genai
 from pymongo import MongoClient
 
+# Import prompts from Python module
+from prompts import get_config as get_prompts_config
+
 
 # --- Local Storage Paths ---
 LOCAL_LOGS_FILE = os.path.join(os.path.dirname(__file__), "local_logs.json")
 
 
 def load_config() -> dict:
-    """Load course and cohort configuration from JSON file."""
-    config_path = os.path.join(os.path.dirname(__file__), "prompts_new.json")
+    """
+    Load course and cohort configuration.
+
+    Uses the Python prompts module instead of JSON file for better
+    maintainability and type safety.
+
+    Returns:
+        dict: Configuration with courses and blooms_levels.
+    """
     try:
-        with open(config_path, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        st.error("Configuration file not found. Please create prompts_new.json.")
-        return {"courses": [], "blooms_levels": []}
-    except json.JSONDecodeError:
-        st.error("Invalid JSON in configuration file.")
+        return get_prompts_config()
+    except Exception as e:
+        st.error(f"Error loading configuration: {str(e)}")
         return {"courses": [], "blooms_levels": []}
 
 
