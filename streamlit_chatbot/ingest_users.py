@@ -274,11 +274,99 @@ def get_all_users_summary(db):
         print(f"  - {module}: {count}")
 
 
+def find_new_users(db, csv_users: list) -> list:
+    """
+    Compare CSV users with database and return only new users.
+    Checks by both username and email to avoid duplicates.
+    """
+    collection = db["users"]
+    new_users = []
+    existing_usernames = []
+    existing_emails = []
+
+    print("\n🔍 Checking for new users in CSV...")
+
+    for user in csv_users:
+        # Check if username already exists
+        existing_by_username = collection.find_one({"username": user["username"]})
+        # Check if email already exists
+        existing_by_email = collection.find_one({"email": user["email"]})
+
+        if existing_by_username:
+            existing_usernames.append(user["username"])
+        elif existing_by_email:
+            existing_emails.append(user["email"])
+            print(f"⚠️  User with email '{user['email']}' exists but different username")
+        else:
+            new_users.append(user)
+            print(f"🆕 NEW: {user['username']} ({user['name']}) - {user['email']}")
+
+    print(f"\n📊 Comparison Results:")
+    print(f"   Total in CSV: {len(csv_users)}")
+    print(f"   Already in DB (by username): {len(existing_usernames)}")
+    print(f"   Already in DB (by email): {len(existing_emails)}")
+    print(f"   New users to add: {len(new_users)}")
+
+    return new_users
+
+
+def sync_new_users(db, csv_path: str) -> dict:
+    """
+    Sync new users from CSV to database.
+    Only adds users that don't already exist.
+    Returns statistics about the sync process.
+    """
+    print("\n" + "=" * 60)
+    print("🔄 SYNC MODE: Finding and adding new users only")
+    print("=" * 60)
+
+    # Read all users from CSV
+    csv_users = read_csv_users(csv_path)
+
+    # Find new users
+    new_users = find_new_users(db, csv_users)
+
+    if not new_users:
+        print("\n✅ No new users to add. Database is up to date!")
+        return {
+            "total_in_csv": len(csv_users),
+            "new_users": 0,
+            "inserted": 0,
+            "errors": [],
+        }
+
+    # Ingest only new users
+    print(f"\n💾 Adding {len(new_users)} new user(s) to database...")
+    stats = ingest_users(db, new_users)
+
+    # Verify the newly added users
+    if stats["inserted"] > 0:
+        print("\n🔍 Verifying newly added users...")
+        verify_users(db, new_users)
+
+    return {
+        "total_in_csv": len(csv_users),
+        "new_users": len(new_users),
+        "inserted": stats["inserted"],
+        "errors": stats["errors"],
+    }
+
+
 def main():
     """Main function to run the user ingestion process."""
+    import sys
+
+    # Check for command line arguments
+    full_import = "--full" in sys.argv
+    mode = "FULL IMPORT" if full_import else "SYNC (new users only)"
+
     print("\n" + "=" * 60)
     print("🚀 ERG AI Tool - User Ingestion Script")
+    print(f"   Mode: {mode}")
     print("=" * 60 + "\n")
+
+    if not full_import:
+        print("ℹ️  Running in SYNC mode (default). Use --full for complete re-import.")
 
     # CSV file path
     csv_path = os.path.join(
@@ -299,28 +387,43 @@ def main():
         print("\n📦 Setting up collection with schema validation...")
         setup_users_collection_with_validation(db)
 
-        # Read users from CSV
-        print("\n📖 Reading users from CSV...")
-        users = read_csv_users(csv_path)
+        if full_import:
+            # Full import mode - read and ingest all users
+            print("\n📖 Reading users from CSV...")
+            users = read_csv_users(csv_path)
 
-        # Ingest users
-        print("\n💾 Ingesting users into MongoDB...")
-        stats = ingest_users(db, users)
+            print("\n💾 Ingesting users into MongoDB...")
+            stats = ingest_users(db, users)
 
-        # Print ingestion summary
-        print("\n" + "=" * 60)
-        print("📊 INGESTION SUMMARY")
-        print("=" * 60)
-        print(f"Total users in CSV: {stats['total']}")
-        print(f"Successfully inserted: {stats['inserted']}")
-        print(f"Skipped (already exist): {stats['skipped']}")
-        print(f"Errors: {len(stats['errors'])}")
-        if stats["errors"]:
-            for err in stats["errors"]:
-                print(f"  - {err['username']}: {err['error']}")
+            # Print ingestion summary
+            print("\n" + "=" * 60)
+            print("📊 INGESTION SUMMARY")
+            print("=" * 60)
+            print(f"Total users in CSV: {stats['total']}")
+            print(f"Successfully inserted: {stats['inserted']}")
+            print(f"Skipped (already exist): {stats['skipped']}")
+            print(f"Errors: {len(stats['errors'])}")
+            if stats["errors"]:
+                for err in stats["errors"]:
+                    print(f"  - {err['username']}: {err['error']}")
 
-        # Verify all users
-        verify_users(db, users)
+            # Verify all users
+            verify_users(db, users)
+        else:
+            # Sync mode - only add new users
+            stats = sync_new_users(db, csv_path)
+
+            # Print sync summary
+            print("\n" + "=" * 60)
+            print("📊 SYNC SUMMARY")
+            print("=" * 60)
+            print(f"Total users in CSV: {stats['total_in_csv']}")
+            print(f"New users found: {stats['new_users']}")
+            print(f"Successfully inserted: {stats['inserted']}")
+            print(f"Errors: {len(stats['errors'])}")
+            if stats["errors"]:
+                for err in stats["errors"]:
+                    print(f"  - {err['username']}: {err['error']}")
 
         # Print overall summary
         get_all_users_summary(db)
