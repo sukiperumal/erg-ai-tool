@@ -96,6 +96,48 @@ ERG AI Tool Team
 """
 
 
+def get_reminder_email_body(
+    user_name: str, cohort_number: int = 1, whatsapp_link: str = None
+) -> str:
+    """
+    Generate a reminder email body for users to complete their cohort.
+    """
+    whatsapp_section = ""
+    if whatsapp_link:
+        whatsapp_section = f"""
+NEED HELP?
+----------
+If you face any issues or have questions, please join our WhatsApp group for quick support:
+
+WhatsApp Group: {whatsapp_link}
+"""
+
+    return f"""
+Dear {user_name},
+
+This is a friendly reminder to complete Cohort-{cohort_number} of the AI-assisted learning study.
+
+IMPORTANT
+---------
+Please complete your current cohort session as soon as possible so that we can send you the next cohort materials.
+
+If you have already completed the session, please ignore this email.
+
+ACCESS LINK: https://edunova.moodlecloud.com/login/index.php
+
+QUICK REMINDERS
+---------------
+• Estimated Duration: ~20 minutes
+• Use of external AI tools is not encouraged
+• This study is anonymised and not graded
+{whatsapp_section}
+Your participation is crucial to the success of this research. Thank you for your time and cooperation!
+
+Warm regards,
+Yash Nagaraj
+"""
+
+
 # =============================================================================
 # Database Functions
 # =============================================================================
@@ -482,6 +524,203 @@ def send_welcome_email_to_custom(
     return result
 
 
+def load_credentials_from_csv() -> dict:
+    """
+    Load username -> password mapping from the CSV file.
+    Returns a dict mapping usernames to plain text passwords.
+    """
+    import csv
+
+    csv_path = os.path.join(
+        os.path.dirname(__file__),
+        "ERG Study Information form (Responses) - Form Responses 1.csv",
+    )
+
+    credentials = {}
+
+    if not os.path.exists(csv_path):
+        print(f"⚠️  CSV file not found: {csv_path}")
+        return credentials
+
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            username = row.get("Username", "").strip()
+            password = row.get("Password ", "").strip()  # Note: space in column name
+            if username and password:
+                credentials[username] = password
+
+    print(f"📄 Loaded {len(credentials)} credentials from CSV")
+    return credentials
+
+
+def send_welcome_emails_to_all(db, users: list) -> dict:
+    """
+    Send welcome emails with credentials to all users.
+    Credentials are loaded from the CSV file.
+    """
+    credentials = load_credentials_from_csv()
+
+    if not credentials:
+        print("❌ No credentials found in CSV. Cannot send welcome emails.")
+        return {"total": 0, "sent": 0, "failed": 0, "errors": []}
+
+    stats = {"total": len(users), "sent": 0, "failed": 0, "errors": []}
+    subject = "Regarding CHEAL ERG Study Participation"
+
+    print("\n" + "=" * 60)
+    print("📧 SENDING WELCOME EMAILS")
+    print("=" * 60 + "\n")
+
+    for user in users:
+        email = user.get("email")
+        name = user.get("name", "User")
+        username = user.get("username", "")
+
+        if not email:
+            print(f"⚠️  Skipping {name} - no email address")
+            stats["failed"] += 1
+            stats["errors"].append({"user": name, "error": "No email address"})
+            continue
+
+        if username not in credentials:
+            print(f"⚠️  Skipping {name} ({username}) - no password in CSV")
+            stats["failed"] += 1
+            stats["errors"].append({"user": name, "error": "No password in CSV"})
+            continue
+
+        password = credentials[username]
+        body = get_welcome_email_body(name, username, password)
+        result = send_email(email, name, subject, body)
+
+        if result["success"]:
+            print(f"✅ EMAIL SENT: {name} <{email}>")
+            stats["sent"] += 1
+        else:
+            print(f"❌ FAILED: {name} <{email}> - {result['error']}")
+            stats["failed"] += 1
+            stats["errors"].append(
+                {"user": name, "email": email, "error": result["error"]}
+            )
+
+    return stats
+
+
+def send_reminder_emails_to_all(
+    db, users: list, cohort_number: int = 1, whatsapp_link: str = None
+) -> dict:
+    """
+    Send reminder emails to all users to complete their cohort.
+    """
+    stats = {"total": len(users), "sent": 0, "failed": 0, "errors": []}
+    subject = f"Reminder: Please Complete Cohort-{cohort_number} - ERG Study"
+
+    print("\n" + "=" * 60)
+    print("📧 SENDING REMINDER EMAILS")
+    print("=" * 60 + "\n")
+
+    for user in users:
+        email = user.get("email")
+        name = user.get("name", "User")
+
+        if not email:
+            print(f"⚠️  Skipping {name} - no email address")
+            stats["failed"] += 1
+            stats["errors"].append({"user": name, "error": "No email address"})
+            continue
+
+        body = get_reminder_email_body(name, cohort_number, whatsapp_link)
+        result = send_email(email, name, subject, body)
+
+        if result["success"]:
+            print(f"✅ EMAIL SENT: {name} <{email}>")
+            stats["sent"] += 1
+        else:
+            print(f"❌ FAILED: {name} <{email}> - {result['error']}")
+            stats["failed"] += 1
+            stats["errors"].append(
+                {"user": name, "email": email, "error": result["error"]}
+            )
+
+    return stats
+
+
+def schedule_reminder_emails(
+    scheduled_time: str,
+    cohort_number: int = 1,
+    whatsapp_link: str = None,
+    filter_query: dict = None,
+):
+    """
+    Schedule reminder emails to be sent at a specific time.
+
+    Args:
+        scheduled_time: Time to send in HH:MM format (24-hour)
+        cohort_number: Which cohort to remind about
+        whatsapp_link: WhatsApp group link for support
+        filter_query: Optional MongoDB filter for users
+    """
+    import time as time_module
+    from datetime import datetime, timedelta
+
+    # Parse scheduled time
+    try:
+        scheduled_hour, scheduled_minute = map(int, scheduled_time.split(":"))
+    except ValueError:
+        print(f"❌ Invalid time format: {scheduled_time}. Use HH:MM format.")
+        return
+
+    # Calculate time until scheduled send
+    now = datetime.now()
+    scheduled_datetime = now.replace(
+        hour=scheduled_hour, minute=scheduled_minute, second=0, microsecond=0
+    )
+
+    # If scheduled time has passed today, schedule for tomorrow
+    if scheduled_datetime <= now:
+        scheduled_datetime += timedelta(days=1)
+
+    wait_seconds = (scheduled_datetime - now).total_seconds()
+
+    print("\n" + "=" * 60)
+    print("⏰ SCHEDULED EMAIL SEND")
+    print("=" * 60)
+    print(f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Scheduled for: {scheduled_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Waiting: {int(wait_seconds // 3600)}h {int((wait_seconds % 3600) // 60)}m")
+    print(f"Cohort: {cohort_number}")
+    if whatsapp_link:
+        print(f"WhatsApp Link: {whatsapp_link}")
+    print("=" * 60)
+    print("\n⏳ Waiting... (Press Ctrl+C to cancel)")
+
+    try:
+        time_module.sleep(wait_seconds)
+
+        print(f"\n🔔 Scheduled time reached! Sending emails...")
+
+        # Connect to database and send
+        client = get_mongo_client()
+        db = client["chatbot_logs"]
+        users = get_users_from_db(db, filter_query)
+
+        if not users:
+            print("❌ No users found")
+            return
+
+        stats = send_reminder_emails_to_all(db, users, cohort_number, whatsapp_link)
+
+        print("\n" + "=" * 60)
+        print("📊 SCHEDULED EMAIL SUMMARY")
+        print("=" * 60)
+        print(f"Total: {stats['total']}")
+        print(f"Sent: {stats['sent']}")
+        print(f"Failed: {stats['failed']}")
+
+    except KeyboardInterrupt:
+        print("\n\n❌ Scheduled send cancelled by user.")
+
+
 def interactive_mode():
     """Run in interactive mode to compose and send emails."""
     print("\n" + "=" * 60)
@@ -500,17 +739,111 @@ def interactive_mode():
     print()
 
     # Get recipient selection
-    print("Who would you like to email?")
-    print("1. All users")
-    print("2. Recently added users (last 24 hours)")
-    print("3. A specific user (by username)")
-    print("4. Custom email address(es)")
-    print("5. Test email (send to yourself)")
-    print("6. Send WELCOME email (with credentials) to custom address")
+    print("What would you like to do?")
+    print("─" * 40)
+    print("WELCOME EMAILS:")
+    print("  1. Send WELCOME emails to ALL users")
+    print("  2. Send WELCOME emails to RECENT users (last 24 hours)")
+    print("  3. Send WELCOME email to a specific user (by username)")
+    print("  6. Send WELCOME email to custom address (manual credentials)")
+    print()
+    print("REMINDER EMAILS:")
+    print("  7. Send REMINDER emails to ALL users (complete cohort)")
+    print("  8. SCHEDULE reminder emails for later (e.g., 4pm)")
+    print()
+    print("OTHER:")
+    print("  4. Send custom email to custom address(es)")
+    print("  5. Test email (send to yourself)")
+    print("─" * 40)
 
-    choice = input("\nEnter choice (1-6): ").strip()
+    choice = input("\nEnter choice (1-8): ").strip()
 
-    # Handle welcome email to custom address separately
+    try:
+        client = get_mongo_client()
+        db = client["chatbot_logs"]
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        return
+
+    # Handle welcome emails to all users
+    if choice == "1":
+        users = get_users_from_db(db)
+        if not users:
+            print("❌ No users found in database")
+            return
+
+        print(f"\n📧 Will send welcome emails to {len(users)} users")
+        confirm = input("Proceed? (yes/no): ").strip().lower()
+        if confirm != "yes":
+            print("Aborted.")
+            return
+
+        stats = send_welcome_emails_to_all(db, users)
+
+        print("\n" + "=" * 60)
+        print("📊 EMAIL SENDING SUMMARY")
+        print("=" * 60)
+        print(f"Total: {stats['total']}")
+        print(f"Sent: {stats['sent']}")
+        print(f"Failed: {stats['failed']}")
+        if stats["errors"]:
+            print("\nErrors:")
+            for err in stats["errors"]:
+                print(f"  - {err['user']}: {err['error']}")
+        return
+
+    # Handle welcome emails to recent users
+    if choice == "2":
+        users = get_new_users_from_db(db, 24)
+        if not users:
+            print("❌ No users found added in the last 24 hours")
+            return
+
+        print(f"\n📧 Will send welcome emails to {len(users)} recent users")
+        confirm = input("Proceed? (yes/no): ").strip().lower()
+        if confirm != "yes":
+            print("Aborted.")
+            return
+
+        stats = send_welcome_emails_to_all(db, users)
+
+        print("\n" + "=" * 60)
+        print("📊 EMAIL SENDING SUMMARY")
+        print("=" * 60)
+        print(f"Total: {stats['total']}")
+        print(f"Sent: {stats['sent']}")
+        print(f"Failed: {stats['failed']}")
+        return
+
+    # Handle welcome email to specific user
+    if choice == "3":
+        username = input("Enter username: ").strip()
+        credentials = load_credentials_from_csv()
+
+        user = db["users"].find_one({"username": username}, {"password": 0})
+        if not user:
+            print(f"❌ User '{username}' not found")
+            return
+
+        if username not in credentials:
+            print(f"❌ No password found in CSV for '{username}'")
+            return
+
+        email = user.get("email")
+        name = user.get("name", username)
+        password = credentials[username]
+
+        print(f"\n📧 Will send welcome email to: {name} <{email}>")
+        print(f"   Credentials: {username} / {'*' * len(password)}")
+        confirm = input("Proceed? (yes/no): ").strip().lower()
+        if confirm != "yes":
+            print("Aborted.")
+            return
+
+        send_welcome_email_to_custom(email, name, username, password)
+        return
+
+    # Handle welcome email to custom address with manual credentials
     if choice == "6":
         print("\n--- Send Welcome Email with Credentials ---")
         to_email = input("Recipient email: ").strip()
@@ -525,7 +858,7 @@ def interactive_mode():
         print("\n" + "-" * 40)
         print("Preview:")
         print(f"To: {to_name} <{to_email}>")
-        print(f"Subject: ERG AI Learning Study - Part 1 (Cohort-1) Now Live")
+        print(f"Subject: Regarding CHEAL ERG Study Participation")
         print(f"Credentials: {username} / {'*' * len(password)}")
         print("-" * 40)
 
@@ -537,6 +870,70 @@ def interactive_mode():
         send_welcome_email_to_custom(to_email, to_name, username, password)
         return
 
+    # Handle reminder emails to all users
+    if choice == "7":
+        users = get_users_from_db(db)
+        if not users:
+            print("❌ No users found in database")
+            return
+
+        cohort = input("Which cohort to remind about? (1/2/3) [default: 1]: ").strip()
+        cohort_number = int(cohort) if cohort in ["1", "2", "3"] else 1
+
+        whatsapp = input("WhatsApp group link (or press Enter to skip): ").strip()
+        whatsapp_link = whatsapp if whatsapp else None
+
+        print(f"\n📧 Will send reminder emails to {len(users)} users")
+        print(f"   Cohort: {cohort_number}")
+        if whatsapp_link:
+            print(f"   WhatsApp: {whatsapp_link}")
+
+        confirm = input("Proceed? (yes/no): ").strip().lower()
+        if confirm != "yes":
+            print("Aborted.")
+            return
+
+        stats = send_reminder_emails_to_all(db, users, cohort_number, whatsapp_link)
+
+        print("\n" + "=" * 60)
+        print("📊 REMINDER EMAIL SUMMARY")
+        print("=" * 60)
+        print(f"Total: {stats['total']}")
+        print(f"Sent: {stats['sent']}")
+        print(f"Failed: {stats['failed']}")
+        return
+
+    # Handle scheduled reminder emails
+    if choice == "8":
+        print("\n--- Schedule Reminder Emails ---")
+
+        scheduled_time = input(
+            "Send at what time? (HH:MM, 24-hour format, e.g., 16:00 for 4pm): "
+        ).strip()
+        if not scheduled_time:
+            scheduled_time = "16:00"
+
+        cohort = input("Which cohort to remind about? (1/2/3) [default: 1]: ").strip()
+        cohort_number = int(cohort) if cohort in ["1", "2", "3"] else 1
+
+        whatsapp = input("WhatsApp group link (or press Enter to skip): ").strip()
+        whatsapp_link = whatsapp if whatsapp else None
+
+        print(f"\n⏰ Scheduling reminder emails:")
+        print(f"   Time: {scheduled_time}")
+        print(f"   Cohort: {cohort_number}")
+        if whatsapp_link:
+            print(f"   WhatsApp: {whatsapp_link}")
+
+        confirm = input("Schedule? (yes/no): ").strip().lower()
+        if confirm != "yes":
+            print("Aborted.")
+            return
+
+        schedule_reminder_emails(scheduled_time, cohort_number, whatsapp_link)
+        return
+
+    # Handle custom email (options 4 and 5)
     # Get subject
     subject = input("\nEmail Subject: ").strip()
     if not subject:
@@ -570,69 +967,54 @@ def interactive_mode():
         print("Aborted.")
         return
 
-    try:
-        client = get_mongo_client()
-        db = client["chatbot_logs"]
+    if choice == "4":
+        # Custom email addresses
+        print(
+            "\nEnter email addresses (comma-separated or one per line, empty line to finish):"
+        )
+        email_input = []
+        while True:
+            line = input().strip()
+            if not line:
+                break
+            email_input.append(line)
 
-        if choice == "1":
-            users = get_users_from_db(db)
-        elif choice == "2":
-            users = get_new_users_from_db(db, 24)
-        elif choice == "3":
-            username = input("Enter username: ").strip()
-            user = db["users"].find_one({"username": username}, {"password": 0})
-            users = [user] if user else []
-        elif choice == "4":
-            # Custom email addresses
-            print(
-                "\nEnter email addresses (comma-separated or one per line, empty line to finish):"
-            )
-            email_input = []
-            while True:
-                line = input().strip()
-                if not line:
-                    break
-                email_input.append(line)
+        # Parse emails (handle both comma-separated and line-by-line)
+        emails = []
+        for item in email_input:
+            if "," in item:
+                emails.extend([e.strip() for e in item.split(",") if e.strip()])
+            else:
+                if item:
+                    emails.append(item)
 
-            # Parse emails (handle both comma-separated and line-by-line)
-            emails = []
-            for item in email_input:
-                if "," in item:
-                    emails.extend([e.strip() for e in item.split(",") if e.strip()])
-                else:
-                    if item:
-                        emails.append(item)
-
-            if not emails:
-                print("❌ No email addresses provided")
-                return
-
-            print(f"\n📧 Will send to {len(emails)} email(s): {', '.join(emails)}")
-            users = [
-                {"name": e.split("@")[0], "email": e, "username": e.split("@")[0]}
-                for e in emails
-            ]
-        elif choice == "5":
-            users = [{"name": "Test User", "email": SENDER_EMAIL, "username": "test"}]
-        else:
-            print("Invalid choice")
+        if not emails:
+            print("❌ No email addresses provided")
             return
 
-        if not users:
-            print("❌ No users found")
-            return
+        print(f"\n📧 Will send to {len(emails)} email(s): {', '.join(emails)}")
+        users = [
+            {"name": e.split("@")[0], "email": e, "username": e.split("@")[0]}
+            for e in emails
+        ]
+    elif choice == "5":
+        users = [{"name": "Test User", "email": SENDER_EMAIL, "username": "test"}]
+    else:
+        print("Invalid choice")
+        return
 
-        stats = send_bulk_emails(users, subject, message)
+    if not users:
+        print("❌ No users found")
+        return
 
-        print("\n" + "=" * 60)
-        print("📊 EMAIL SENDING SUMMARY")
-        print("=" * 60)
-        print(f"Total: {stats['total']}")
-        print(f"Sent: {stats['sent']}")
-        print(f"Failed: {stats['failed']}")
+    stats = send_bulk_emails(users, subject, message)
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
+    print("\n" + "=" * 60)
+    print("📊 EMAIL SENDING SUMMARY")
+    print("=" * 60)
+    print(f"Total: {stats['total']}")
+    print(f"Sent: {stats['sent']}")
+    print(f"Failed: {stats['failed']}")
 
 
 def main():
@@ -714,22 +1096,78 @@ def main():
             print(
                 "Usage: python send_user_emails.py --to email@example.com --subject 'Subject' --message 'Message'"
             )
+    elif "--schedule" in sys.argv:
+        # Schedule reminder emails from command line
+        try:
+            # Get time (default 16:00)
+            scheduled_time = "16:00"
+            if "--time" in sys.argv:
+                time_index = sys.argv.index("--time")
+                scheduled_time = sys.argv[time_index + 1]
+            
+            # Get cohort (default 1)
+            cohort_number = 1
+            if "--cohort" in sys.argv:
+                cohort_index = sys.argv.index("--cohort")
+                cohort_number = int(sys.argv[cohort_index + 1])
+            
+            # Get WhatsApp link
+            whatsapp_link = None
+            if "--whatsapp" in sys.argv:
+                wa_index = sys.argv.index("--whatsapp")
+                whatsapp_link = sys.argv[wa_index + 1]
+            
+            schedule_reminder_emails(scheduled_time, cohort_number, whatsapp_link)
+            
+        except (IndexError, ValueError) as e:
+            print(f"❌ Error parsing arguments: {e}")
+            print("Usage: python send_user_emails.py --schedule --time 16:00 --cohort 1 --whatsapp 'link'")
+    elif "--reminder" in sys.argv:
+        # Send reminder emails immediately
+        try:
+            client = get_mongo_client()
+            db = client["chatbot_logs"]
+            users = get_users_from_db(db)
+            
+            # Get cohort (default 1)
+            cohort_number = 1
+            if "--cohort" in sys.argv:
+                cohort_index = sys.argv.index("--cohort")
+                cohort_number = int(sys.argv[cohort_index + 1])
+            
+            # Get WhatsApp link
+            whatsapp_link = None
+            if "--whatsapp" in sys.argv:
+                wa_index = sys.argv.index("--whatsapp")
+                whatsapp_link = sys.argv[wa_index + 1]
+            
+            stats = send_reminder_emails_to_all(db, users, cohort_number, whatsapp_link)
+            
+            print("\n" + "=" * 60)
+            print("📊 REMINDER EMAIL SUMMARY")
+            print("=" * 60)
+            print(f"Total: {stats['total']}")
+            print(f"Sent: {stats['sent']}")
+            print(f"Failed: {stats['failed']}")
+            
+        except Exception as e:
+            print(f"❌ Error: {e}")
     else:
         print("\nUsage:")
         print("  python send_user_emails.py --interactive  # Interactive mode")
-        print(
-            "  python send_user_emails.py --test         # Send test email to yourself"
-        )
-        print(
-            "  python send_user_emails.py --to email@example.com --subject 'Subject' --message 'Message'"
-        )
-        print(
-            "  python send_user_emails.py --to email1@example.com,email2@example.com --subject 'Subject'"
-        )
-        print("\nOr import and use programmatically:")
-        print(
-            "  from send_user_emails import send_to_all_users, send_to_custom_emails, send_single_custom_email"
-        )
+        print("  python send_user_emails.py --test         # Send test email to yourself")
+        print()
+        print("  # Custom emails:")
+        print("  python send_user_emails.py --to email@example.com --subject 'Subject' --message 'Message'")
+        print()
+        print("  # Reminder emails (send now):")
+        print("  python send_user_emails.py --reminder --cohort 1 --whatsapp 'https://chat.whatsapp.com/xxx'")
+        print()
+        print("  # Schedule reminder emails:")
+        print("  python send_user_emails.py --schedule --time 16:00 --cohort 1 --whatsapp 'https://chat.whatsapp.com/xxx'")
+        print()
+        print("Or import and use programmatically:")
+        print("  from send_user_emails import send_reminder_emails_to_all, schedule_reminder_emails")
 
 
 if __name__ == "__main__":
