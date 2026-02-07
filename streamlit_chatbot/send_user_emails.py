@@ -115,7 +115,7 @@ WhatsApp Group: {whatsapp_link}
     return f"""
 Dear {user_name},
 
-This is a friendly reminder to complete Cohort-{cohort_number} of the AI-assisted learning study.
+This is a friendly reminder to complete Cohort-{cohort_number} of the ERG study.
 
 IMPORTANT
 ---------
@@ -554,6 +554,213 @@ def load_credentials_from_csv() -> dict:
     return credentials
 
 
+def load_users_from_csv() -> list:
+    """
+    Load full user information from CSV file.
+    Returns a list of user dicts with name, email, username, password.
+    """
+    import csv
+
+    csv_path = os.path.join(
+        os.path.dirname(__file__),
+        "ERG Study Information form (Responses) - Form Responses 1.csv",
+    )
+
+    users = []
+
+    if not os.path.exists(csv_path):
+        print(f"⚠️  CSV file not found: {csv_path}")
+        return users
+
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            username = row.get("Username", "").strip()
+            password = row.get("Password ", "").strip()  # Note: space in column name
+            name = row.get("Name", "").strip()
+            email = row.get("Email ID", "").strip()
+
+            if username and password and email:
+                users.append(
+                    {
+                        "name": name or username,
+                        "email": email,
+                        "username": username,
+                        "password": password,
+                    }
+                )
+
+    print(f"📄 Loaded {len(users)} users from CSV")
+    return users
+
+
+def load_users_from_csv_by_range(start_row: int, end_row: int) -> list:
+    """
+    Load users from CSV file by row number range.
+    Row numbers are 1-indexed (row 1 = first data row after header).
+
+    Args:
+        start_row: Starting row number (1-indexed, inclusive)
+        end_row: Ending row number (1-indexed, inclusive)
+
+    Returns:
+        List of user dicts within the specified range.
+    """
+    import csv
+
+    csv_path = os.path.join(
+        os.path.dirname(__file__),
+        "ERG Study Information form (Responses) - Form Responses 1.csv",
+    )
+
+    users = []
+
+    if not os.path.exists(csv_path):
+        print(f"⚠️  CSV file not found: {csv_path}")
+        return users
+
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for idx, row in enumerate(reader, start=1):  # 1-indexed
+            if idx < start_row:
+                continue
+            if idx > end_row:
+                break
+
+            username = row.get("Username", "").strip()
+            password = row.get("Password ", "").strip()  # Note: space in column name
+            name = row.get("Name", "").strip()
+            email = row.get("Email ID", "").strip()
+
+            if username and password and email:
+                users.append(
+                    {
+                        "row": idx,
+                        "name": name or username,
+                        "email": email,
+                        "username": username,
+                        "password": password,
+                    }
+                )
+            else:
+                print(f"⚠️  Row {idx}: Missing data (username/password/email)")
+
+    print(f"📄 Loaded {len(users)} users from CSV (rows {start_row}-{end_row})")
+    return users
+
+
+def send_welcome_emails_to_csv_range(start_row: int, end_row: int) -> dict:
+    """
+    Send welcome emails to users in a specific row range of the CSV.
+
+    Args:
+        start_row: Starting row number (1-indexed)
+        end_row: Ending row number (1-indexed)
+
+    Returns:
+        Statistics about the email sending process.
+    """
+    users = load_users_from_csv_by_range(start_row, end_row)
+
+    if not users:
+        print(f"❌ No valid users found in rows {start_row}-{end_row}")
+        return {"total": 0, "sent": 0, "failed": 0, "errors": []}
+
+    stats = {"total": len(users), "sent": 0, "failed": 0, "errors": []}
+    subject = "Regarding CHEAL ERG Study Participation"
+
+    print("\n" + "=" * 60)
+    print(f"📧 SENDING WELCOME EMAILS TO CSV ROWS {start_row}-{end_row}")
+    print("=" * 60 + "\n")
+
+    for user in users:
+        email = user["email"]
+        name = user["name"]
+        username = user["username"]
+        password = user["password"]
+        row = user["row"]
+
+        body = get_welcome_email_body(name, username, password)
+        result = send_email(email, name, subject, body)
+
+        if result["success"]:
+            print(f"✅ Row {row}: {name} <{email}> ({username})")
+            stats["sent"] += 1
+        else:
+            print(f"❌ Row {row}: {name} <{email}> - {result['error']}")
+            stats["failed"] += 1
+            stats["errors"].append(
+                {"row": row, "user": name, "email": email, "error": result["error"]}
+            )
+
+    return stats
+
+
+def get_new_csv_users_not_in_db(db) -> list:
+    """
+    Find users in CSV that are not yet in the database.
+    Returns list of user dicts from CSV that don't exist in DB.
+    """
+    csv_users = load_users_from_csv()
+    if not csv_users:
+        return []
+
+    # Get all usernames from database
+    collection = db["users"]
+    db_usernames = set()
+    for user in collection.find({}, {"username": 1}):
+        if user.get("username"):
+            db_usernames.add(user["username"])
+
+    print(f"📊 Found {len(db_usernames)} users in database")
+
+    # Find CSV users not in DB
+    new_users = [u for u in csv_users if u["username"] not in db_usernames]
+    print(f"🆕 Found {len(new_users)} new users in CSV not in database")
+
+    return new_users
+
+
+def send_welcome_emails_to_new_csv_users(db) -> dict:
+    """
+    Send welcome emails to users in CSV who are not yet in the database.
+    Uses CSV data directly (no DB lookup needed for these users).
+    """
+    new_users = get_new_csv_users_not_in_db(db)
+
+    if not new_users:
+        print("✅ No new CSV users found - all CSV users are already in the database")
+        return {"total": 0, "sent": 0, "failed": 0, "errors": []}
+
+    stats = {"total": len(new_users), "sent": 0, "failed": 0, "errors": []}
+    subject = "Regarding CHEAL ERG Study Participation"
+
+    print("\n" + "=" * 60)
+    print("📧 SENDING WELCOME EMAILS TO NEW CSV USERS")
+    print("=" * 60 + "\n")
+
+    for user in new_users:
+        email = user["email"]
+        name = user["name"]
+        username = user["username"]
+        password = user["password"]
+
+        body = get_welcome_email_body(name, username, password)
+        result = send_email(email, name, subject, body)
+
+        if result["success"]:
+            print(f"✅ EMAIL SENT: {name} <{email}> ({username})")
+            stats["sent"] += 1
+        else:
+            print(f"❌ FAILED: {name} <{email}> - {result['error']}")
+            stats["failed"] += 1
+            stats["errors"].append(
+                {"user": name, "email": email, "error": result["error"]}
+            )
+
+    return stats
+
+
 def send_welcome_emails_to_all(db, users: list) -> dict:
     """
     Send welcome emails with credentials to all users.
@@ -742,10 +949,12 @@ def interactive_mode():
     print("What would you like to do?")
     print("─" * 40)
     print("WELCOME EMAILS:")
-    print("  1. Send WELCOME emails to ALL users")
+    print("  1. Send WELCOME emails to ALL users (in DB)")
     print("  2. Send WELCOME emails to RECENT users (last 24 hours)")
     print("  3. Send WELCOME email to a specific user (by username)")
     print("  6. Send WELCOME email to custom address (manual credentials)")
+    print("  9. Send WELCOME emails to NEW CSV users (not in DB)")
+    print(" 10. Send WELCOME emails to CSV ROW RANGE (e.g., rows 31-45)")
     print()
     print("REMINDER EMAILS:")
     print("  7. Send REMINDER emails to ALL users (complete cohort)")
@@ -756,7 +965,7 @@ def interactive_mode():
     print("  5. Test email (send to yourself)")
     print("─" * 40)
 
-    choice = input("\nEnter choice (1-8): ").strip()
+    choice = input("\nEnter choice (1-10): ").strip()
 
     try:
         client = get_mongo_client()
@@ -868,6 +1077,95 @@ def interactive_mode():
             return
 
         send_welcome_email_to_custom(to_email, to_name, username, password)
+        return
+
+    # Handle welcome emails to new CSV users (not in DB)
+    if choice == "9":
+        new_users = get_new_csv_users_not_in_db(db)
+
+        if not new_users:
+            print(
+                "\n✅ No new CSV users found - all CSV users are already in the database"
+            )
+            return
+
+        print(f"\n📧 Found {len(new_users)} new users in CSV not in database:")
+        for u in new_users:
+            print(f"   - {u['name']} ({u['username']}) <{u['email']}>")
+
+        confirm = (
+            input("\nSend welcome emails to these users? (yes/no): ").strip().lower()
+        )
+        if confirm != "yes":
+            print("Aborted.")
+            return
+
+        stats = send_welcome_emails_to_new_csv_users(db)
+
+        print("\n" + "=" * 60)
+        print("📊 EMAIL SENDING SUMMARY")
+        print("=" * 60)
+        print(f"Total: {stats['total']}")
+        print(f"Sent: {stats['sent']}")
+        print(f"Failed: {stats['failed']}")
+        if stats["errors"]:
+            print("\nErrors:")
+            for err in stats["errors"]:
+                print(f"  - {err['user']}: {err['error']}")
+        return
+
+    # Handle welcome emails to CSV row range
+    if choice == "10":
+        print("\n--- Send Welcome Emails to CSV Row Range ---")
+        print("(Row 1 = first data row after header)")
+
+        range_input = input("Enter row range (e.g., 31-45): ").strip()
+
+        try:
+            if "-" in range_input:
+                start_row, end_row = map(int, range_input.split("-"))
+            else:
+                # Single row
+                start_row = end_row = int(range_input)
+        except ValueError:
+            print(
+                "❌ Invalid range format. Use 'start-end' (e.g., 31-45) or single number"
+            )
+            return
+
+        if start_row < 1 or end_row < start_row:
+            print("❌ Invalid range. Start must be >= 1 and end must be >= start")
+            return
+
+        users = load_users_from_csv_by_range(start_row, end_row)
+
+        if not users:
+            print(f"\n❌ No valid users found in rows {start_row}-{end_row}")
+            return
+
+        print(
+            f"\n📧 Will send welcome emails to {len(users)} users (rows {start_row}-{end_row}):"
+        )
+        for u in users:
+            print(f"   Row {u['row']}: {u['name']} ({u['username']}) <{u['email']}>")
+
+        confirm = input("\nProceed? (yes/no): ").strip().lower()
+        if confirm != "yes":
+            print("Aborted.")
+            return
+
+        stats = send_welcome_emails_to_csv_range(start_row, end_row)
+
+        print("\n" + "=" * 60)
+        print("📊 EMAIL SENDING SUMMARY")
+        print("=" * 60)
+        print(f"Total: {stats['total']}")
+        print(f"Sent: {stats['sent']}")
+        print(f"Failed: {stats['failed']}")
+        if stats["errors"]:
+            print("\nErrors:")
+            for err in stats["errors"]:
+                print(f"  - Row {err['row']} {err['user']}: {err['error']}")
         return
 
     # Handle reminder emails to all users
@@ -1104,70 +1402,82 @@ def main():
             if "--time" in sys.argv:
                 time_index = sys.argv.index("--time")
                 scheduled_time = sys.argv[time_index + 1]
-            
+
             # Get cohort (default 1)
             cohort_number = 1
             if "--cohort" in sys.argv:
                 cohort_index = sys.argv.index("--cohort")
                 cohort_number = int(sys.argv[cohort_index + 1])
-            
+
             # Get WhatsApp link
             whatsapp_link = None
             if "--whatsapp" in sys.argv:
                 wa_index = sys.argv.index("--whatsapp")
                 whatsapp_link = sys.argv[wa_index + 1]
-            
+
             schedule_reminder_emails(scheduled_time, cohort_number, whatsapp_link)
-            
+
         except (IndexError, ValueError) as e:
             print(f"❌ Error parsing arguments: {e}")
-            print("Usage: python send_user_emails.py --schedule --time 16:00 --cohort 1 --whatsapp 'link'")
+            print(
+                "Usage: python send_user_emails.py --schedule --time 16:00 --cohort 1 --whatsapp 'link'"
+            )
     elif "--reminder" in sys.argv:
         # Send reminder emails immediately
         try:
             client = get_mongo_client()
             db = client["chatbot_logs"]
             users = get_users_from_db(db)
-            
+
             # Get cohort (default 1)
             cohort_number = 1
             if "--cohort" in sys.argv:
                 cohort_index = sys.argv.index("--cohort")
                 cohort_number = int(sys.argv[cohort_index + 1])
-            
+
             # Get WhatsApp link
             whatsapp_link = None
             if "--whatsapp" in sys.argv:
                 wa_index = sys.argv.index("--whatsapp")
                 whatsapp_link = sys.argv[wa_index + 1]
-            
+
             stats = send_reminder_emails_to_all(db, users, cohort_number, whatsapp_link)
-            
+
             print("\n" + "=" * 60)
             print("📊 REMINDER EMAIL SUMMARY")
             print("=" * 60)
             print(f"Total: {stats['total']}")
             print(f"Sent: {stats['sent']}")
             print(f"Failed: {stats['failed']}")
-            
+
         except Exception as e:
             print(f"❌ Error: {e}")
     else:
         print("\nUsage:")
         print("  python send_user_emails.py --interactive  # Interactive mode")
-        print("  python send_user_emails.py --test         # Send test email to yourself")
+        print(
+            "  python send_user_emails.py --test         # Send test email to yourself"
+        )
         print()
         print("  # Custom emails:")
-        print("  python send_user_emails.py --to email@example.com --subject 'Subject' --message 'Message'")
+        print(
+            "  python send_user_emails.py --to email@example.com --subject 'Subject' --message 'Message'"
+        )
         print()
         print("  # Reminder emails (send now):")
-        print("  python send_user_emails.py --reminder --cohort 1 --whatsapp 'https://chat.whatsapp.com/xxx'")
+        print(
+            "  python send_user_emails.py --reminder --cohort 1 --whatsapp 'https://chat.whatsapp.com/xxx'"
+        )
         print()
         print("  # Schedule reminder emails:")
-        print("  python send_user_emails.py --schedule --time 16:00 --cohort 1 --whatsapp 'https://chat.whatsapp.com/xxx'")
+        print(
+            "  python send_user_emails.py --schedule --time 16:00 --cohort 1 --whatsapp 'https://chat.whatsapp.com/xxx'"
+        )
         print()
         print("Or import and use programmatically:")
-        print("  from send_user_emails import send_reminder_emails_to_all, schedule_reminder_emails")
+        print(
+            "  from send_user_emails import send_reminder_emails_to_all, schedule_reminder_emails"
+        )
 
 
 if __name__ == "__main__":

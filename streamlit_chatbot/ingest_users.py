@@ -7,6 +7,8 @@ import csv
 import os
 import hashlib
 import uuid
+import random
+import string
 from datetime import datetime
 from pymongo import MongoClient
 from pymongo.errors import CollectionInvalid, OperationFailure
@@ -20,6 +22,46 @@ load_dotenv()
 def hash_password(password: str) -> str:
     """Hash a password using SHA-256 (matching auth.py implementation)."""
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def generate_password(length: int = 12) -> str:
+    """
+    Generate a secure random password.
+    Includes uppercase, lowercase, digits, and special characters.
+    """
+    # Ensure at least one of each type
+    password = [
+        random.choice(string.ascii_uppercase),
+        random.choice(string.ascii_lowercase),
+        random.choice(string.digits),
+        random.choice("!@#$%&*"),
+    ]
+
+    # Fill the rest with random characters
+    all_chars = string.ascii_letters + string.digits + "!@#$%&*"
+    password.extend(random.choice(all_chars) for _ in range(length - 4))
+
+    # Shuffle to randomize positions
+    random.shuffle(password)
+    return "".join(password)
+
+
+def generate_username(email: str, name: str = None) -> str:
+    """
+    Generate a username from email or name.
+    Uses email prefix and adds random suffix if needed.
+    """
+    # Use email prefix
+    username = email.split("@")[0].lower()
+
+    # Clean up the username (remove special chars except underscore)
+    username = "".join(c for c in username if c.isalnum() or c == "_")
+
+    # Add random suffix if username is too short
+    if len(username) < 4:
+        username = username + str(random.randint(100, 999))
+
+    return username
 
 
 def get_mongo_client():
@@ -124,30 +166,82 @@ def setup_users_collection_with_validation(db):
     print("✅ Created index on 'email' field")
 
 
-def read_csv_users(csv_path: str) -> list:
-    """Read users from CSV file."""
+def read_csv_users(csv_path: str, auto_generate_credentials: bool = True) -> tuple:
+    """
+    Read users from CSV file.
+    If auto_generate_credentials is True, generates missing username/password.
+
+    Returns:
+        tuple: (users list, updated_rows list for CSV update)
+    """
     users = []
+    updated_rows = []
+    needs_update = False
 
     with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+
         for row in reader:
+            # Check if credentials are missing
+            password = row.get("Password ", "").strip()
+            username = row.get("Username", "").strip()
+            email = row.get("Email ID", "").strip()
+            name = row.get("Name", "").strip()
+
+            # Generate missing credentials
+            if not password:
+                password = generate_password()
+                row["Password "] = password
+                needs_update = True
+                print(f"🔑 Generated password for: {name}")
+
+            if not username:
+                username = generate_username(email, name)
+                row["Username"] = username
+                needs_update = True
+                print(f"👤 Generated username for: {name} -> {username}")
+
+            updated_rows.append(row)
+
             user = {
                 "timestamp": row.get("Timestamp", "").strip(),
-                "name": row.get("Name", "").strip(),
-                "email": row.get("Email ID", "").strip(),
+                "name": name,
+                "email": email,
                 "semester": row.get("Current Semester", "").strip(),
                 "module_cohort_1": row.get("Module -Cohort 1", "").strip() or None,
                 "module_cohort_2": row.get("Module Cohort-2", "").strip() or None,
                 "module_cohort_3": row.get("Module Cohort-3", "").strip() or None,
-                "password": row.get(
-                    "Password ", ""
-                ).strip(),  # Note: space in column name
-                "username": row.get("Username", "").strip(),
+                "password": password,
+                "username": username,
             }
             users.append(user)
 
     print(f"📄 Read {len(users)} users from CSV")
-    return users
+
+    # Return users, updated rows, fieldnames, and whether update is needed
+    return users, updated_rows, fieldnames, needs_update
+
+
+def update_csv_with_credentials(csv_path: str, rows: list, fieldnames: list):
+    """
+    Update the CSV file with generated credentials.
+    Creates a backup before updating.
+    """
+    import shutil
+
+    # Create backup
+    backup_path = csv_path + ".backup"
+    shutil.copy2(csv_path, backup_path)
+    print(f"📁 Created backup: {backup_path}")
+
+    # Write updated CSV
+    with open(csv_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"✅ Updated CSV with generated credentials")
 
 
 def ingest_users(db, users: list) -> dict:
@@ -320,8 +414,12 @@ def sync_new_users(db, csv_path: str) -> dict:
     print("🔄 SYNC MODE: Finding and adding new users only")
     print("=" * 60)
 
-    # Read all users from CSV
-    csv_users = read_csv_users(csv_path)
+    # Read all users from CSV (with auto-generated credentials if needed)
+    csv_users, updated_rows, fieldnames, needs_update = read_csv_users(csv_path)
+
+    # Update CSV if credentials were generated
+    if needs_update:
+        update_csv_with_credentials(csv_path, updated_rows, fieldnames)
 
     # Find new users
     new_users = find_new_users(db, csv_users)
@@ -390,7 +488,11 @@ def main():
         if full_import:
             # Full import mode - read and ingest all users
             print("\n📖 Reading users from CSV...")
-            users = read_csv_users(csv_path)
+            users, updated_rows, fieldnames, needs_update = read_csv_users(csv_path)
+
+            # Update CSV if credentials were generated
+            if needs_update:
+                update_csv_with_credentials(csv_path, updated_rows, fieldnames)
 
             print("\n💾 Ingesting users into MongoDB...")
             stats = ingest_users(db, users)
